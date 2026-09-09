@@ -1,8 +1,9 @@
 """Read-only ledger import and portfolio analysis routes."""
 
 from datetime import date, datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Body, HTTPException, Response
 
 from app.services.engines import holdings, migration_plan, tax_lots
 from app.services.ledger import CAPABILITIES, store
@@ -17,7 +18,12 @@ def connectors() -> dict:
 
 
 @router.post("/households/{household_id}/imports/{connector}", status_code=201)
-def import_csv(household_id: str, connector: str, body: str, response: Response) -> dict:
+def import_csv(
+    household_id: str,
+    connector: str,
+    body: Annotated[str, Body(media_type="text/csv")],
+    response: Response,
+) -> dict:
     try:
         before = len(store.batches)
         batch = store.import_csv(household_id, connector, body)

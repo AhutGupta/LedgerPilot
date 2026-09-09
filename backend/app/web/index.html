@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LedgerPilot</title>
+    <style>
+      body { font-family: system-ui, sans-serif; line-height: 1.5; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; }
+      form, section { border: 1px solid #ddd; border-radius: .5rem; margin: 1rem 0; padding: 1rem; }
+      label { display: block; margin: .5rem 0; } button { padding: .5rem .8rem; }
+      table { border-collapse: collapse; width: 100%; } th, td { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
+      #status { font-weight: 600; } .error { color: #a00; }
+    </style>
+  </head>
+  <body>
+    <h1>LedgerPilot</h1>
+    <p>Upload a portfolio CSV to create a read-only household portfolio view.</p>
+    <form id="upload">
+      <label>Household ID <input id="household" value="my-household" required></label>
+      <label>Source <select id="connector"><option value="ibkr">IBKR</option><option value="fidelity">Fidelity</option><option value="robinhood">Robinhood</option><option value="bofa">Bank of America</option><option value="wealthfront">Wealthfront</option></select></label>
+      <label>CSV report <input id="file" type="file" accept=".csv,text/csv" required></label>
+      <button>Import report</button> <span id="status" aria-live="polite"></span>
+    </form>
+    <section>
+      <h2>Holdings</h2><div id="metadata"></div>
+      <table><thead><tr><th>Account</th><th>Symbol</th><th>Quantity</th></tr></thead><tbody id="holdings"></tbody></table>
+    </section>
+    <script>
+      const status = document.querySelector("#status");
+      const household = () => encodeURIComponent(document.querySelector("#household").value);
+      async function loadHoldings() {
+        const response = await fetch(`/api/v1/households/${household()}/holdings`);
+        const data = await response.json();
+        document.querySelector("#metadata").textContent = `${data.freshness} · ${data.sync_status} · as of ${data.as_of}`;
+        const table = document.querySelector("#holdings");
+        table.replaceChildren(...data.holdings.map(holding => {
+          const row = document.createElement("tr");
+          [holding.account_id, holding.symbol, holding.quantity].forEach(value => {
+            const cell = document.createElement("td"); cell.textContent = value; row.append(cell);
+          });
+          return row;
+        }));
+      }
+      document.querySelector("#upload").addEventListener("submit", async event => {
+        event.preventDefault(); status.className = ""; status.textContent = "Importing…";
+        const file = document.querySelector("#file").files[0];
+        const connector = document.querySelector("#connector").value;
+        const response = await fetch(`/api/v1/households/${household()}/imports/${connector}`, { method: "POST", headers: {"Content-Type": "text/csv"}, body: await file.text() });
+        const result = await response.json();
+        if (!response.ok) { status.className = "error"; status.textContent = result.detail; return; }
+        status.textContent = result.idempotent ? "Already imported." : `Imported ${result.row_count} rows.`;
+        loadHoldings();
+      });
+    </script>
+  </body>
+</html>

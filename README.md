@@ -12,7 +12,8 @@ The backend now provides a small, runnable read-only API for the initial workflo
 - `GET /api/v1/connectors` exposes explicit capability flags for IBKR, Fidelity, Robinhood, BofA, and Wealthfront.
 
 CSV requires `account_id,symbol,transaction_date,quantity,price,type`; optional
-`cost_basis,lot_id,external_id` improve tax-lot reconstruction and idempotency.
+`market_price,cost_basis,lot_id,external_id` improve valuation, tax-lot reconstruction,
+and idempotency.
 Supported types are `BUY`, `SELL`, and `TRANSFER_IN`. Import batches retain raw input
 and a content hash; external event IDs prevent duplicated transactions across imports.
 
@@ -28,6 +29,17 @@ pytest
 This is intentionally an in-memory first vertical slice. Replacing `LedgerStore` with
 a PostgreSQL-backed repository, adding encrypted raw-object storage, and implementing
 the IBKR read-only activity import are the next production steps.
+
+### Run the web app with Docker
+
+From the repository root, run `docker compose -f infra/docker-compose.yml up --build`.
+Then visit <http://localhost:8000>. Choose a household and connector, upload a CSV, and
+the same page displays the derived holdings with freshness metadata. Data is intentionally
+in-memory in this milestone, so it resets when the container restarts.
+
+The UI is a single same-origin FastAPI-served page for this feature. A Next.js read-only
+application should replace it once the canonical repository and persisted snapshots are
+in place; it must retain the visible `as_of`, source, freshness, and sync-status indicators.
 
 ## Product boundaries (MVP)
 

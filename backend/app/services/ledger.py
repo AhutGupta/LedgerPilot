@@ -34,6 +34,7 @@ class Transaction:
     transaction_date: date
     quantity: Decimal
     price: Decimal
+    market_price: Decimal | None
     transaction_type: str
     cost_basis: Decimal
     lot_id: str
@@ -105,7 +106,8 @@ class LedgerStore:
             return Transaction(
                 id=str(uuid4()), account_id=row["account_id"].strip(), symbol=row["symbol"].strip().upper(),
                 transaction_date=date.fromisoformat(row["transaction_date"]), quantity=quantity,
-                price=price, transaction_type=kind,
+                price=price, market_price=Decimal(row["market_price"]) if row.get("market_price") else None,
+                transaction_type=kind,
                 cost_basis=Decimal(row.get("cost_basis") or quantity * price),
                 lot_id=row.get("lot_id", "").strip() or source_id, source_id=source_id,
                 batch_id=batch_id,

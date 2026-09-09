@@ -10,15 +10,31 @@ from app.services.ledger import Transaction
 
 
 def tax_lots(transactions: list[Transaction], as_of: date) -> list[dict]:
-    lots = [t for t in transactions if t.transaction_type in {"BUY", "TRANSFER_IN"}]
+    remaining: list[tuple[Transaction, Decimal]] = []
+    for transaction in sorted(transactions, key=lambda item: (item.transaction_date, item.id)):
+        if transaction.transaction_type in {"BUY", "TRANSFER_IN"}:
+            remaining.append((transaction, transaction.quantity))
+            continue
+        quantity_to_match = transaction.quantity
+        for index, (lot, quantity) in enumerate(remaining):
+            if (lot.account_id, lot.symbol) != (transaction.account_id, transaction.symbol):
+                continue
+            consumed = min(quantity, quantity_to_match)
+            remaining[index] = (lot, quantity - consumed)
+            quantity_to_match -= consumed
+            if not quantity_to_match:
+                break
     result = []
-    for lot in lots:
-        market_price = lot.price
-        market_value = lot.quantity * market_price
-        gain = market_value - lot.cost_basis
+    for lot, quantity in remaining:
+        if not quantity:
+            continue
+        market_price = lot.market_price or lot.price
+        cost_basis = lot.cost_basis * quantity / lot.quantity
+        market_value = quantity * market_price
+        gain = market_value - cost_basis
         result.append({
             "account_id": lot.account_id, "symbol": lot.symbol, "lot_id": lot.lot_id,
-            "quantity": str(lot.quantity), "cost_basis": str(lot.cost_basis),
+            "quantity": str(quantity), "cost_basis": str(cost_basis),
             "market_value": str(market_value), "unrealized_gain": str(gain),
             "holding_period": "long_term" if (as_of - lot.transaction_date).days > 365 else "short_term",
         })
