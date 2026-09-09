@@ -3,6 +3,44 @@
 LedgerPilot is a self-hosted, multi-user portfolio intelligence platform for households.
 It is **read-only and advisory** (Observe → Analyze → Recommend → Explain), with no trade execution or money movement.
 
+## Implemented vertical slice
+
+The backend now provides a small, runnable read-only API for the initial workflow:
+
+- `POST /api/v1/households/{household_id}/imports/{connector}` accepts a CSV body.
+- `GET /api/v1/households/{household_id}/holdings`, `tax-lots`, and `migration-plan` return derived views with snapshot metadata.
+- `GET /api/v1/connectors` exposes explicit capability flags for IBKR, Fidelity, Robinhood, BofA, and Wealthfront.
+
+CSV requires `account_id,symbol,transaction_date,quantity,price,type`; optional
+`market_price,cost_basis,lot_id,external_id` improve valuation, tax-lot reconstruction,
+and idempotency.
+Supported types are `BUY`, `SELL`, and `TRANSFER_IN`. Import batches retain raw input
+and a content hash; external event IDs prevent duplicated transactions across imports.
+
+Run locally:
+
+```bash
+cd backend
+python -m pip install -e ".[dev]"
+uvicorn app.main:app --reload
+pytest
+```
+
+This is intentionally an in-memory first vertical slice. Replacing `LedgerStore` with
+a PostgreSQL-backed repository, adding encrypted raw-object storage, and implementing
+the IBKR read-only activity import are the next production steps.
+
+### Run the web app with Docker
+
+From the repository root, run `docker compose -f infra/docker-compose.yml up --build`.
+Then visit <http://localhost:8000>. Choose a household and connector, upload a CSV, and
+the same page displays the derived holdings with freshness metadata. Data is intentionally
+in-memory in this milestone, so it resets when the container restarts.
+
+The UI is a single same-origin FastAPI-served page for this feature. A Next.js read-only
+application should replace it once the canonical repository and persisted snapshots are
+in place; it must retain the visible `as_of`, source, freshness, and sync-status indicators.
+
 ## Product boundaries (MVP)
 
 - ✅ Consolidate data from broker/bank connectors and file imports
