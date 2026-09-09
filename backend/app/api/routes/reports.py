@@ -1,0 +1,1 @@
+"""reports route skeleton."""

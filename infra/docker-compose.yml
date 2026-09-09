@@ -1,0 +1,4 @@
+# LedgerPilot infrastructure skeleton.
+# Intentionally minimal; services will be added as implementation proceeds.
+version: "3.9"
+services: {}
