@@ -1,0 +1,1 @@
+"""LedgerPilot API application skeleton."""

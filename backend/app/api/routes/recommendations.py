@@ -1,0 +1,1 @@
+"""recommendations route skeleton."""

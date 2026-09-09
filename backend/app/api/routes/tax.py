@@ -1,0 +1,1 @@
+"""tax route skeleton."""
