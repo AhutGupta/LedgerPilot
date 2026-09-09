@@ -1,0 +1,16 @@
+[project]
+name = "ledgerpilot-backend"
+version = "0.1.0"
+description = "Read-only canonical portfolio ledger API"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.116.1",
+    "uvicorn==0.35.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.1"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
