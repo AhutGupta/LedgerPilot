@@ -5,41 +5,42 @@ It is **read-only and advisory** (Observe → Analyze → Recommend → Explain)
 
 ## Implemented vertical slice
 
-The backend now provides a small, runnable read-only API for the initial workflow:
+The MVP now spans a PostgreSQL-backed FastAPI API and a Next.js dashboard:
 
-- `POST /api/v1/households/{household_id}/imports/{connector}` accepts a CSV body.
-- `GET /api/v1/households/{household_id}/holdings`, `tax-lots`, and `migration-plan` return derived views with snapshot metadata.
-- `GET /api/v1/connectors` exposes explicit capability flags for IBKR, Fidelity, Robinhood, BofA, and Wealthfront.
+- `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, and `GET /api/v1/me` provide profile auth with signed bearer tokens.
+- `GET /api/v1/households` and `POST /api/v1/households` expose household-scoped access under explicit memberships.
+- `POST /api/v1/households/{household_id}/imports/{connector}` accepts a CSV body, stores the raw upload in a private backend directory, and persists normalized ledger rows into PostgreSQL.
+- `GET /api/v1/households/{household_id}/dashboard` returns holdings, tax lots, migration plan, and snapshot metadata in one tenant-scoped payload.
+- `GET /api/v1/households/{household_id}/holdings`, `tax-lots`, `migration-plan`, and `GET /api/v1/connectors` remain available for narrow reads.
 
-CSV requires `account_id,symbol,transaction_date,quantity,price,type`; optional
-`market_price,cost_basis,lot_id,external_id` improve valuation, tax-lot reconstruction,
-and idempotency.
-Supported types are `BUY`, `SELL`, and `TRANSFER_IN`. Import batches retain raw input
-and a content hash; external event IDs prevent duplicated transactions across imports.
+CSV still requires `account_id,symbol,transaction_date,quantity,price,type`; optional
+`market_price,cost_basis,lot_id,external_id` improve valuation and tax-lot reconstruction.
+Supported types are `BUY`, `SELL`, and `TRANSFER_IN`. Durable idempotency now comes from
+PostgreSQL uniqueness on import content hashes and household-scoped source event IDs.
 
 Run locally:
 
 ```bash
 cd backend
-python -m pip install -e ".[dev]"
+python -m pip install -e .
 uvicorn app.main:app --reload
-pytest
+
+# in another shell
+cd frontend
+npm install
+npm run dev
 ```
 
-This is intentionally an in-memory first vertical slice. Replacing `LedgerStore` with
-a PostgreSQL-backed repository, adding encrypted raw-object storage, and implementing
-the IBKR read-only activity import are the next production steps.
+Set `DATABASE_URL`, `LEDGERPILOT_AUTH_SECRET`, and optionally `LEDGERPILOT_FRONTEND_ORIGIN`
+and `LEDGERPILOT_RAW_UPLOAD_ROOT` before starting the backend. The raw upload directory is
+created outside the web root with restrictive filesystem permissions.
 
-### Run the web app with Docker
+### Run the stack with Docker
 
 From the repository root, run `docker compose -f infra/docker-compose.yml up --build`.
-Then visit <http://localhost:8000>. Choose a household and connector, upload a CSV, and
-the same page displays the derived holdings with freshness metadata. Data is intentionally
-in-memory in this milestone, so it resets when the container restarts.
-
-The UI is a single same-origin FastAPI-served page for this feature. A Next.js read-only
-application should replace it once the canonical repository and persisted snapshots are
-in place; it must retain the visible `as_of`, source, freshness, and sync-status indicators.
+Then visit <http://localhost:3000>, register a profile, choose a household, upload a CSV, and
+review holdings, tax lots, and migration guidance with visible `as_of`, source, freshness,
+and sync-status indicators.
 
 ## Product boundaries (MVP)
 

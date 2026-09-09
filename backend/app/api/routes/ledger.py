@@ -1,57 +1,122 @@
 """Read-only ledger import and portfolio analysis routes."""
 
+from __future__ import annotations
+
 from datetime import date, datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Body, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 
+from app.domain.models import Profile
+from app.services.auth import require_profile
 from app.services.engines import holdings, migration_plan, tax_lots
-from app.services.ledger import CAPABILITIES, store
+from app.services.ledger import CAPABILITIES, repository
+
 
 router = APIRouter(tags=["ledger"])
 
 
 @router.get("/connectors")
 def connectors() -> dict:
-    return {"connectors": [{"name": name, "capabilities": capabilities}
-                           for name, capabilities in CAPABILITIES.items()]}
+    return {
+        "connectors": [
+            {"name": name, "capabilities": capabilities}
+            for name, capabilities in CAPABILITIES.items()
+        ]
+    }
 
 
-@router.post("/households/{household_id}/imports/{connector}", status_code=201)
+@router.post("/households/{household_id}/imports/{connector}", status_code=status.HTTP_201_CREATED)
 def import_csv(
     household_id: str,
     connector: str,
     body: Annotated[str, Body(media_type="text/csv")],
     response: Response,
+    profile: Annotated[Profile, Depends(require_profile)],
 ) -> dict:
     try:
-        before = len(store.batches)
-        batch = store.import_csv(household_id, connector, body)
+        batch, idempotent = repository.import_csv(profile.id, household_id, connector, body)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if len(store.batches) == before:
-        response.status_code = 200
-    return {"batch_id": batch.id, "row_count": batch.row_count, "content_hash": batch.content_hash,
-            "imported_at": batch.imported_at, "idempotent": response.status_code == 200}
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if idempotent:
+        response.status_code = status.HTTP_200_OK
+    return {
+        "batch_id": batch.id,
+        "row_count": batch.row_count,
+        "content_hash": batch.content_hash,
+        "imported_at": batch.imported_at,
+        "idempotent": idempotent,
+    }
+
+
+@router.get("/households/{household_id}/dashboard")
+def get_dashboard(
+    household_id: str,
+    profile: Annotated[Profile, Depends(require_profile)],
+) -> dict:
+    return _snapshot(
+        profile.id,
+        household_id,
+        lambda transactions: {
+            "holdings": holdings(transactions),
+            "tax_lots": tax_lots(transactions, date.today()),
+            "migration_plan": migration_plan(transactions, date.today()),
+            "imports": [
+                {
+                    "id": batch.id,
+                    "connector": batch.connector,
+                    "content_hash": batch.content_hash,
+                    "imported_at": batch.imported_at,
+                    "row_count": batch.row_count,
+                }
+                for batch in repository.list_import_batches(profile.id, household_id)
+            ],
+        },
+    )
 
 
 @router.get("/households/{household_id}/holdings")
-def get_holdings(household_id: str) -> dict:
-    return _snapshot(household_id, {"holdings": holdings(store.for_household(household_id))})
+def get_holdings(
+    household_id: str,
+    profile: Annotated[Profile, Depends(require_profile)],
+) -> dict:
+    return _snapshot(profile.id, household_id, lambda transactions: {"holdings": holdings(transactions)})
 
 
 @router.get("/households/{household_id}/tax-lots")
-def get_tax_lots(household_id: str) -> dict:
-    return _snapshot(household_id, {"tax_lots": tax_lots(store.for_household(household_id), date.today())})
+def get_tax_lots(
+    household_id: str,
+    profile: Annotated[Profile, Depends(require_profile)],
+) -> dict:
+    return _snapshot(
+        profile.id,
+        household_id,
+        lambda transactions: {"tax_lots": tax_lots(transactions, date.today())},
+    )
 
 
 @router.get("/households/{household_id}/migration-plan")
-def get_migration_plan(household_id: str) -> dict:
-    return _snapshot(household_id, {"migration_plan": migration_plan(store.for_household(household_id), date.today())})
+def get_migration_plan(
+    household_id: str,
+    profile: Annotated[Profile, Depends(require_profile)],
+) -> dict:
+    return _snapshot(
+        profile.id,
+        household_id,
+        lambda transactions: {"migration_plan": migration_plan(transactions, date.today())},
+    )
 
 
-def _snapshot(household_id: str, payload: dict) -> dict:
-    batches = [b for b in store.batches.values() if b.household_id == household_id]
-    return {**payload, "as_of": datetime.now(timezone.utc), "source": "canonical_ledger",
-            "freshness": "current" if batches else "unavailable", "sync_status": "success" if batches else "never_synced",
-            "calculation_version": "1"}
+def _snapshot(profile_id: str, household_id: str, build_payload) -> dict:
+    try:
+        transactions = repository.for_household(profile_id, household_id)
+        metadata = repository.snapshot_metadata(profile_id, household_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {
+        **build_payload(transactions),
+        **metadata,
+        "as_of": datetime.now(timezone.utc),
+    }
