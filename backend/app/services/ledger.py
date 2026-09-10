@@ -102,6 +102,7 @@ CSV_HEADER_ALIASES = {
     "transaction_date": {
         "activity date",
         "date",
+        "date/time",
         "posted date",
         "settle date",
         "trade date",
@@ -109,9 +110,9 @@ CSV_HEADER_ALIASES = {
         "transaction_date",
     },
     "quantity": {"quantity", "qty", "share quantity", "shares", "units"},
-    "price": {"price", "price/share", "share price", "trade price", "unit price"},
-    "amount": {"amount", "gross amount", "net amount", "principal", "total amount", "trade amount"},
-    "type": {"action", "activity type", "transaction type", "type"},
+    "price": {"price", "price/share", "share price", "t. price", "trade price", "unit price"},
+    "amount": {"amount", "gross amount", "net amount", "principal", "proceeds", "total amount", "trade amount"},
+    "type": {"action", "activity type", "buy/sell", "buy sell", "transaction type", "type"},
     "market_price": {"current price", "last price", "market price", "market_price"},
     "cost_basis": {"cost basis", "cost_basis"},
     "lot_id": {"lot", "lot id", "lot_id", "tax lot", "tax lot id"},
@@ -1412,15 +1413,15 @@ repository = LedgerRepository()
 
 
 def normalize_csv_rows(content: str, household_id: str, household_person_id: str, batch_id: str) -> list[Transaction]:
-    reader = _build_csv_reader(content)
-    header_map = _resolve_headers(reader.fieldnames or [])
+    fieldnames, source_rows = _read_csv_rows(content)
+    header_map = _resolve_headers(fieldnames)
     missing = sorted(REQUIRED_COLUMNS - set(header_map))
     if "price" not in header_map and "amount" not in header_map:
         missing.append("price_or_amount")
     if missing:
-        raise ValueError(_format_missing_column_error(reader.fieldnames or [], missing))
+        raise ValueError(_format_missing_column_error(fieldnames, missing))
     normalized_rows = []
-    for row_number, row in enumerate(reader, start=2):
+    for row_number, row in source_rows:
         if _is_blank_row(row):
             continue
         normalized_rows.append(
@@ -1483,14 +1484,74 @@ def _normalize_row(
         raise ValueError(f"invalid row {row_number}: {exc}") from exc
 
 
-def _build_csv_reader(content: str) -> csv.DictReader:
+def _read_csv_rows(content: str) -> tuple[list[str], list[tuple[int, dict[str, str]]]]:
     sanitized = content.lstrip("\ufeff")
     sample = sanitized[:4096]
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
     except csv.Error:
         dialect = csv.excel
-    return csv.DictReader(io.StringIO(sanitized), dialect=dialect)
+    table = list(csv.reader(io.StringIO(sanitized), dialect=dialect))
+    if not table:
+        return [], []
+
+    embedded_rows = _extract_embedded_statement_rows(table)
+    if embedded_rows:
+        fieldnames = list(embedded_rows[0][1])
+        return fieldnames, embedded_rows
+
+    fieldnames = table[0]
+    return fieldnames, [
+        (row_number, {header: value for header, value in zip(fieldnames, row)})
+        for row_number, row in enumerate(table[1:], start=2)
+    ]
+
+
+def _extract_embedded_statement_rows(table: list[list[str]]) -> list[tuple[int, dict[str, str]]]:
+    """Extract transaction sections from broker statements with per-section headers."""
+    account_id = ""
+    extracted: list[tuple[int, dict[str, str]]] = []
+    for header_row_number, header_row in enumerate(table, start=1):
+        if len(header_row) < 3 or header_row[1].strip().lower() != "header":
+            continue
+        section = header_row[0].strip()
+        headers = header_row[2:]
+        if {_normalize_header(header) for header in headers} == {"field name", "field value"}:
+            for data_row in table[header_row_number:]:
+                if len(data_row) < 4 or data_row[0].strip() != section or data_row[1].strip().lower() != "data":
+                    if data_row and data_row[0].strip() != section:
+                        break
+                    continue
+                if _normalize_header(data_row[2]) in CSV_HEADER_ALIASES["account_id"]:
+                    account_id = data_row[3].strip()
+            continue
+
+        header_map = _resolve_headers(headers)
+        has_trade_values = (
+            REQUIRED_COLUMNS - {"account_id", "type"} <= set(header_map)
+            and ("price" in header_map or "amount" in header_map)
+        )
+        if not has_trade_values:
+            continue
+        for row_number, data_row in enumerate(table[header_row_number:], start=header_row_number + 1):
+            if len(data_row) < 3 or data_row[0].strip() != section or data_row[1].strip().lower() != "data":
+                if data_row and data_row[0].strip() != section:
+                    break
+                continue
+            row = {header: value for header, value in zip(headers, data_row[2:])}
+            if account_id and not any(_normalize_header(header) in CSV_HEADER_ALIASES["account_id"] for header in headers):
+                row["Account Number"] = account_id
+            if "type" not in header_map:
+                row["Type"] = _transaction_type_from_quantity(row.get(header_map["quantity"]))
+            extracted.append((row_number, row))
+    return extracted
+
+
+def _transaction_type_from_quantity(value: str | None) -> str:
+    quantity = _parse_decimal(value, field_name="quantity")
+    if quantity == 0:
+        raise ValueError("quantity must be non-zero to infer transaction type")
+    return "BUY" if quantity > 0 else "SELL"
 
 
 def _resolve_headers(fieldnames: list[str]) -> dict[str, str]:

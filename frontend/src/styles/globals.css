@@ -178,6 +178,26 @@ select {
   color: var(--muted);
 }
 
+.csvHelp {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.csvHelp summary {
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.csvHelp p {
+  margin: 0.6rem 0 0;
+}
+
+.csvHelp code {
+  color: var(--text);
+}
+
 .statusCard dl {
   display: grid;
   grid-template-columns: repeat(2, minmax(140px, 1fr));

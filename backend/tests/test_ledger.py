@@ -107,3 +107,22 @@ acct-1,VTI
             "person-1",
             "batch-1",
         )
+
+
+def test_normalize_csv_rows_accepts_ibkr_embedded_activity_statement() -> None:
+    rows = normalize_csv_rows(
+        """Statement,Header,Field Name,Field Value
+Statement,Data,Account,DU123456
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,Proceeds
+Trades,Data,Order,Stocks,USD,VTI,2026-01-15,2,205.00,-410.00
+Trades,Data,Order,Stocks,USD,BND,2026-01-16,-3,70.00,210.00
+""",
+        "household-1",
+        "person-1",
+        "batch-1",
+    )
+
+    assert [(row.account_id, row.symbol, row.transaction_type) for row in rows] == [
+        ("DU123456", "VTI", "BUY"),
+        ("DU123456", "BND", "SELL"),
+    ]

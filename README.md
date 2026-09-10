@@ -72,11 +72,29 @@ Current tool catalog:
 
 ## CSV contract
 
-Canonical fields are still `account_id,symbol,transaction_date,quantity,price,type`, with optional
-`market_price,cost_basis,lot_id,external_id`. The importer now also accepts common broker-style
-header variants such as `Account Number`, `Security Symbol`, `Trade Date`, `Shares`, `Action`,
-`Net Amount`, and `Transaction ID`, supports comma/semicolon/tab-delimited files, can derive price
-from amount when needed, and returns row-level validation errors with found headers/details.
+The upload format is visible in the dashboard and documented here. LedgerPilot accepts a normal
+transaction table with these required values:
+
+| Required value | Accepted headers |
+| --- | --- |
+| Account | `account_id`, `Account Number`, `Account`, `Portfolio` |
+| Symbol | `symbol`, `ticker`, `Security Symbol` |
+| Transaction date | `transaction_date`, `Trade Date`, `Date/Time`, `Activity Date` |
+| Quantity | `quantity`, `qty`, `Shares`, `Units` |
+| Price or amount | `price`, `T. Price`, `Net Amount`, `Proceeds` |
+| Type | `type`, `Action`, `Buy/Sell`, `Transaction Type` |
+
+Optional values are `market_price`, `cost_basis`, `lot_id`, and `external_id` (for example,
+`Current Price`, `Cost Basis`, `Tax Lot ID`, and `Transaction ID`). Types normalize to `BUY`,
+`SELL`, or `TRANSFER_IN`.
+
+It also accepts Interactive Brokers Activity Statement exports whose first row is
+`Statement,Header,Field Name,Field Value`. For these multi-section exports, LedgerPilot reads the
+account from the statement metadata, finds the `Trades` table's embedded header, and infers buy or
+sell from the signed quantity when no action column exists. Comma-, semicolon-, tab-, and
+pipe-delimited files are supported. Prices are derived from amounts when needed. Unsupported
+activities are rejected with the exact row and reason rather than silently creating incorrect tax
+records.
 Supported normalized types are `BUY`, `SELL`, and `TRANSFER_IN`.
 
 ## Product boundaries (MVP)

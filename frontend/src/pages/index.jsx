@@ -447,6 +447,19 @@ export default function HomePage() {
                   CSV export
                   <input type="file" accept=".csv,text/csv" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} />
                 </label>
+                <details className="csvHelp">
+                  <summary>CSV format help</summary>
+                  <p>
+                    Upload a transaction table containing account, symbol, date, quantity, price or
+                    amount, and buy/sell type. Common labels such as <code>Account Number</code>,
+                    <code>Security Symbol</code>, <code>Trade Date</code>, <code>Shares</code>,
+                    and <code>Net Amount</code> work too.
+                  </p>
+                  <p>
+                    Interactive Brokers Activity Statement CSVs beginning with{" "}
+                    <code>Statement,Header,Field Name,Field Value</code> are supported directly.
+                  </p>
+                </details>
                 <button type="submit" disabled={isLoading || !selectedHouseholdId || !selectedPersonId}>
                   Upload to {selectedPerson?.full_name || "person"}
                 </button>
