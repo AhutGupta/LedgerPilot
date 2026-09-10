@@ -127,5 +127,7 @@ docker compose -f infra/docker-compose.yml up --build
 
 Then visit <http://localhost:3000>, register a profile, choose a household, upload a CSV,
 and review holdings, tax lots, policy-driven recommendations, sync history, and dashboard metadata.
+Only port `3000` is published to the host; the dashboard proxies `/api` requests to the private API
+container, and PostgreSQL is available only within the Compose network.
 
 Portfolio migration planning is intentionally deferred from the MVP and will be introduced as a future capability.

@@ -5,8 +5,6 @@ services:
       POSTGRES_DB: ledgerpilot
       POSTGRES_USER: ledgerpilot
       POSTGRES_PASSWORD: ledgerpilot
-    ports:
-      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
@@ -26,16 +24,13 @@ services:
       LEDGERPILOT_RAW_UPLOAD_ROOT: data/raw-imports
     volumes:
       - ../backend/data:/app/data
-    ports:
-      - "8000:8000"
-
   frontend:
     build:
       context: ../frontend
     depends_on:
       - api
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+      NEXT_PUBLIC_API_BASE_URL: /api/v1
     ports:
       - "3000:3000"
 
