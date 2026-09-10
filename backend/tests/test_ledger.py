@@ -1,4 +1,4 @@
-from app.services.engines import holdings, migration_plan, tax_lots
+from app.services.engines import holdings, tax_lots
 from app.services.ledger import LedgerStore
 
 
@@ -23,8 +23,6 @@ def test_import_is_idempotent_and_derives_analysis() -> None:
     vti_lot = next(lot for lot in lots if lot["symbol"] == "VTI")
     assert vti_lot["holding_period"] == "long_term"
     assert vti_lot["unrealized_gain"] == "200"
-    plan = migration_plan(transactions, __import__("datetime").date(2026, 1, 2))
-    assert next(item for item in plan if item["symbol"] == "BND")["action"] == "sell_fractional_share"
 
 
 def test_duplicate_event_in_a_new_file_is_not_reimported() -> None:

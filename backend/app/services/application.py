@@ -10,7 +10,6 @@ from app.services.engines import (
     allocation_breakdown,
     cash_deployment_plan,
     holdings,
-    migration_plan,
     portfolio_summary,
     quarterly_review_report,
     realized_gains_summary,
@@ -95,7 +94,6 @@ class HouseholdApplicationService:
             "allocation": allocation_breakdown(transactions),
             "tax_lots": tax_lots(transactions, analysis_date),
             "realized_gains": realized_gains_summary(transactions, analysis_date),
-            "migration_plan": migration_plan(transactions, analysis_date, policy=latest_policy),
             "recommendations": rebalance_actions(transactions, latest_policy),
             "policy": self._policy_payload(latest_policy),
             "recent_memory": [self._memory_payload(item) for item in repository.list_memory_entries(profile_id, household_id, limit=10)],
@@ -135,7 +133,6 @@ class HouseholdApplicationService:
                 "allocation": dashboard["allocation"],
                 "tax_lots": dashboard["tax_lots"],
                 "realized_gains": dashboard["realized_gains"],
-                "migration_plan": dashboard["migration_plan"],
                 "recommendations": dashboard["recommendations"],
                 "policy": dashboard["policy"],
                 "warnings": dashboard["warnings"],
@@ -306,7 +303,6 @@ class HouseholdApplicationService:
             "policy": dashboard["policy"],
             "recommendations": dashboard["recommendations"],
             "cash_deployment": dashboard["cash_deployment"],
-            "migration_plan": dashboard["migration_plan"],
             "warnings": dashboard["warnings"],
             "as_of": dashboard["as_of"],
         }
@@ -374,7 +370,7 @@ class HouseholdApplicationService:
         if metadata["freshness"] == "unavailable":
             warnings.append("No imports or completed syncs are stored for this household yet.")
         if latest_policy is None:
-            warnings.append("No household policy is stored yet; recommendations are limited to migration heuristics.")
+            warnings.append("No household policy is stored yet; policy-driven recommendations are unavailable.")
         return warnings
 
     @staticmethod

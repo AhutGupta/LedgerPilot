@@ -457,19 +457,6 @@ export default function HomePage() {
               />
             </section>
             <section className="card stack">
-              <h2>Migration plan</h2>
-              <Table
-                columns={[
-                  { key: "symbol", label: "Symbol" },
-                  { key: "quantity", label: "Quantity" },
-                  { key: "action", label: "Action" },
-                  { key: "reason", label: "Reason" },
-                ]}
-                rows={dashboard?.migration_plan || []}
-                emptyLabel={selectedHouseholdId ? "No migration recommendations yet." : "Select a household."}
-              />
-            </section>
-            <section className="card stack">
               <h2>Rebalance recommendations</h2>
               <Table
                 columns={[

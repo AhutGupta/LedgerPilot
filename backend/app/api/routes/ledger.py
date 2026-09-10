@@ -124,22 +124,6 @@ def get_tax_lots(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
-@router.get("/households/{household_id}/migration-plan")
-def get_migration_plan(
-    household_id: str,
-    profile: Annotated[Profile, Depends(require_profile)],
-) -> dict:
-    try:
-        dashboard = household_app_service.build_dashboard(profile.id, household_id)
-        return {
-            "as_of": dashboard["as_of"],
-            "migration_plan": dashboard["migration_plan"],
-            "recommendations": dashboard["recommendations"],
-        }
-    except LookupError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-
 @router.post("/households/{household_id}/simulate-sale")
 def post_sale_simulation(
     household_id: str,

@@ -16,7 +16,7 @@ The current MVP now delivers a compact, coherent backend for tenant-scoped dashb
 7. **Memory persistence** — household goals, constraints, preferences, and reconciliation notes are stored separately from canonical facts.
 8. **Connector + sync persistence** — connector link state and sync runs are recorded even when refresh is import-driven.
 9. **Snapshot + audit persistence** — dashboard snapshots and append-only audit events capture imports, policy/memory changes, syncs, and AI tool use.
-10. **Deterministic finance tools** — holdings, tax lots, realized gains, allocation drift, cash deployment, migration planning, sale simulation, and lightweight reports.
+10. **Deterministic finance tools** — holdings, tax lots, realized gains, allocation drift, cash deployment, sale simulation, and lightweight reports.
 
 ## Implemented API slice
 
@@ -34,7 +34,6 @@ The current MVP now delivers a compact, coherent backend for tenant-scoped dashb
 - `GET /api/v1/households/{household_id}/dashboard`
 - `GET /api/v1/households/{household_id}/holdings`
 - `GET /api/v1/households/{household_id}/tax-lots`
-- `GET /api/v1/households/{household_id}/migration-plan`
 - `POST /api/v1/households/{household_id}/simulate-sale`
 - `GET /api/v1/households/{household_id}/recommendations`
 - `GET /api/v1/households/{household_id}/reports/quarterly-review`
@@ -61,7 +60,6 @@ Current tool catalog:
 - `get_dashboard`
 - `get_portfolio_summary`
 - `simulate_sale`
-- `generate_migration_plan`
 - `generate_report`
 - `list_memory`
 - `get_policy`
@@ -76,7 +74,7 @@ Supported types are `BUY`, `SELL`, and `TRANSFER_IN`.
 
 - ✅ Consolidate data from broker/bank connectors and file imports
 - ✅ Normalize into a canonical ledger with provenance and auditability
-- ✅ Run deterministic portfolio, tax, migration, and report analysis
+- ✅ Run deterministic portfolio, tax, and report analysis
 - ✅ Expose results in a read-only UI and via an AI assistant tool API
 - ❌ No buy/sell/transfer execution APIs
 - ❌ No direct AI database access
@@ -128,4 +126,6 @@ docker compose -f infra/docker-compose.yml up --build
 ```
 
 Then visit <http://localhost:3000>, register a profile, choose a household, upload a CSV,
-and review holdings, tax lots, migration guidance, sync history, and dashboard metadata.
+and review holdings, tax lots, policy-driven recommendations, sync history, and dashboard metadata.
+
+Portfolio migration planning is intentionally deferred from the MVP and will be introduced as a future capability.

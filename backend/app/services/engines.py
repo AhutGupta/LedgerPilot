@@ -1,4 +1,4 @@
-"""Pure deterministic portfolio, tax, migration, and reporting calculations."""
+"""Pure deterministic portfolio, tax, and reporting calculations."""
 
 from __future__ import annotations
 
@@ -195,36 +195,6 @@ def cash_deployment_plan(
     ]
 
 
-def migration_plan(
-    transactions: list[Transaction],
-    as_of: date,
-    policy: PortfolioPolicy | None = None,
-) -> list[dict]:
-    max_single_position = Decimal(policy.max_single_position_pct) if policy and policy.max_single_position_pct else None
-    weights = {item["symbol"]: Decimal(item["weight_pct"]) for item in allocation_breakdown(transactions)}
-    plan = []
-    for lot in tax_lots(transactions, as_of):
-        quantity = Decimal(lot["quantity"])
-        whole_shares = quantity == quantity.to_integral_value()
-        concentration_flag = bool(max_single_position and weights.get(lot["symbol"], ZERO) > max_single_position)
-        reason = (
-            "whole shares are eligible for in-kind review"
-            if whole_shares
-            else "fractional shares generally require liquidation before transfer"
-        )
-        if concentration_flag:
-            reason = f"{reason}; position also exceeds current concentration policy"
-        plan.append(
-            {
-                **lot,
-                "action": "transfer_in_kind" if whole_shares else "sell_fractional_share",
-                "reason": reason,
-                "concentration_flag": concentration_flag,
-            }
-        )
-    return plan
-
-
 def simulate_sale(
     transactions: list[Transaction],
     *,
@@ -292,7 +262,6 @@ def quarterly_review_report(transactions: list[Transaction], as_of: date, policy
     summary = portfolio_summary(transactions, as_of)
     realized = realized_gains_summary(transactions, as_of)
     recommendations = rebalance_actions(transactions, policy)
-    migration = migration_plan(transactions, as_of, policy=policy)
     top_concentration = next(
         (
             item
@@ -318,7 +287,6 @@ def quarterly_review_report(transactions: list[Transaction], as_of: date, policy
         "summary": summary,
         "realized_gains": realized,
         "recommendations": recommendations[:5],
-        "migration_actions": migration[:5],
         "risks": risks,
     }
 

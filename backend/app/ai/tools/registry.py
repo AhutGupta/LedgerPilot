@@ -63,14 +63,6 @@ class AIToolRegistry:
                     account_id=arguments.get("account_id"),
                 ),
             ),
-            "generate_migration_plan": (
-                ToolDefinition(
-                    name="generate_migration_plan",
-                    description="Return the current migration plan with whole-share and policy concentration context.",
-                    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-                ),
-                lambda profile_id, household_id, _: household_app_service.build_dashboard(profile_id, household_id)["migration_plan"],
-            ),
             "generate_report": (
                 ToolDefinition(
                     name="generate_report",
