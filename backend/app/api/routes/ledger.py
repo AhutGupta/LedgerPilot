@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from app.domain.models import Profile
@@ -32,6 +32,7 @@ class CreateConnectorRequest(BaseModel):
     secret_provider: str = "env"
     secret_reference: str | None = None
     external_reference: str | None = None
+    person_id: str | None = None
 
 
 class RecordSyncRequest(BaseModel):
@@ -39,6 +40,7 @@ class RecordSyncRequest(BaseModel):
     trigger: str = "manual"
     status: str | None = None
     summary: str | None = None
+    person_id: str | None = None
 
 
 class CreateSnapshotRequest(BaseModel):
@@ -69,33 +71,31 @@ def import_csv(
     body: Annotated[str, Body(media_type="text/csv")],
     response: Response,
     profile: Annotated[Profile, Depends(require_profile)],
+    person_id: str | None = Query(default=None),
 ) -> dict:
-    try:
-        result = household_app_service.import_csv(profile.id, household_id, connector, body)
-    except LookupError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    if result["idempotent"]:
-        response.status_code = status.HTTP_200_OK
-    return {
-        "batch_id": result["batch"].id,
-        "row_count": result["batch"].row_count,
-        "content_hash": result["batch"].content_hash,
-        "imported_at": result["batch"].imported_at,
-        "idempotent": result["idempotent"],
-        "snapshot_id": result["snapshot"].id,
-        "sync_run_id": result["sync_run"].id,
-    }
+    return _import_csv_for_person(household_id, person_id, connector, body, response, profile)
+
+
+@router.post("/households/{household_id}/people/{person_id}/imports/{connector}", status_code=status.HTTP_201_CREATED)
+def import_csv_for_person(
+    household_id: str,
+    person_id: str,
+    connector: str,
+    body: Annotated[str, Body(media_type="text/csv")],
+    response: Response,
+    profile: Annotated[Profile, Depends(require_profile)],
+) -> dict:
+    return _import_csv_for_person(household_id, person_id, connector, body, response, profile)
 
 
 @router.get("/households/{household_id}/dashboard")
 def get_dashboard(
     household_id: str,
     profile: Annotated[Profile, Depends(require_profile)],
+    person_id: str | None = Query(default=None),
 ) -> dict:
     try:
-        return household_app_service.build_dashboard(profile.id, household_id)
+        return household_app_service.build_dashboard(profile.id, household_id, person_id=person_id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -104,24 +104,42 @@ def get_dashboard(
 def get_holdings(
     household_id: str,
     profile: Annotated[Profile, Depends(require_profile)],
+    person_id: str | None = Query(default=None),
 ) -> dict:
     try:
-        dashboard = household_app_service.build_dashboard(profile.id, household_id)
-        return {"as_of": dashboard["as_of"], "holdings": dashboard["holdings"], "summary": dashboard["summary"]}
+        dashboard = household_app_service.build_dashboard(profile.id, household_id, person_id=person_id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if person_id and dashboard["selected_person_dashboard"]:
+        return {
+            "as_of": dashboard["as_of"],
+            "selected_person": dashboard["selected_person"],
+            "summary": dashboard["selected_person_dashboard"]["summary"],
+            "holdings": dashboard["selected_person_dashboard"]["holdings"],
+            "household_summary": dashboard["summary"],
+        }
+    return {"as_of": dashboard["as_of"], "holdings": dashboard["holdings"], "summary": dashboard["summary"]}
 
 
 @router.get("/households/{household_id}/tax-lots")
 def get_tax_lots(
     household_id: str,
     profile: Annotated[Profile, Depends(require_profile)],
+    person_id: str | None = Query(default=None),
 ) -> dict:
     try:
-        dashboard = household_app_service.build_dashboard(profile.id, household_id)
-        return {"as_of": dashboard["as_of"], "realized_gains": dashboard["realized_gains"], "tax_lots": dashboard["tax_lots"]}
+        dashboard = household_app_service.build_dashboard(profile.id, household_id, person_id=person_id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if person_id and dashboard["selected_person_dashboard"]:
+        return {
+            "as_of": dashboard["as_of"],
+            "selected_person": dashboard["selected_person"],
+            "realized_gains": dashboard["selected_person_dashboard"]["realized_gains"],
+            "tax_lots": dashboard["selected_person_dashboard"]["tax_lots"],
+            "household_realized_gains": dashboard["realized_gains"],
+        }
+    return {"as_of": dashboard["as_of"], "realized_gains": dashboard["realized_gains"], "tax_lots": dashboard["tax_lots"]}
 
 
 @router.post("/households/{household_id}/simulate-sale")
@@ -206,6 +224,7 @@ def create_connector(
             secret_provider=payload.secret_provider,
             secret_reference=payload.secret_reference,
             external_reference=payload.external_reference,
+            household_person_id=payload.person_id,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -238,6 +257,7 @@ def create_sync(
             trigger=payload.trigger,
             status=payload.status,
             summary=payload.summary,
+            household_person_id=payload.person_id,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -266,3 +286,32 @@ def create_snapshot(
         return {"snapshot": household_app_service._snapshot_payload(household_app_service.capture_snapshot(profile.id, household_id, snapshot_type=payload.snapshot_type))}
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+def _import_csv_for_person(
+    household_id: str,
+    person_id: str | None,
+    connector: str,
+    body: str,
+    response: Response,
+    profile: Profile,
+) -> dict:
+    try:
+        result = household_app_service.import_csv(profile.id, household_id, person_id, connector, body)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if result["idempotent"]:
+        response.status_code = status.HTTP_200_OK
+    return {
+        "batch_id": result["batch"].id,
+        "person_id": result["person"].id,
+        "person_name": result["person"].full_name,
+        "row_count": result["batch"].row_count,
+        "content_hash": result["batch"].content_hash,
+        "imported_at": result["batch"].imported_at,
+        "idempotent": result["idempotent"],
+        "snapshot_id": result["snapshot"].id,
+        "sync_run_id": result["sync_run"].id,
+    }

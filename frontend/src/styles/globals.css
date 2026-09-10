@@ -116,6 +116,10 @@ select {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
+.threeColOnWide {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
 .card {
   padding: 1rem;
 }
@@ -220,5 +224,11 @@ th {
   .inlineForm,
   .statusCard dl {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 1080px) {
+  .threeColOnWide {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

@@ -18,9 +18,9 @@ class RawUploadStore:
         self.root.mkdir(parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
 
-    def store(self, household_id: str, connector: str, content_hash: str, content: str) -> str:
+    def store(self, household_id: str, household_person_id: str, connector: str, content_hash: str, content: str) -> str:
         self.ensure_root()
-        household_dir = self.root / household_id
+        household_dir = self.root / household_id / household_person_id
         household_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(household_dir, 0o700)
         target = household_dir / f"{connector}-{content_hash}.lpraw"
@@ -34,6 +34,7 @@ class RawUploadStore:
                     "connector": connector,
                     "content_hash": content_hash,
                     "household_id": household_id,
+                    "household_person_id": household_person_id,
                 },
             )
             with os.fdopen(file_descriptor, "w", encoding="utf-8", newline="") as handle:

@@ -1,4 +1,6 @@
 from app.domain.models.ledger import (
+    Account,
+    HouseholdPerson,
     HouseholdSummary,
     ImportBatch,
     Profile,
@@ -15,8 +17,10 @@ from app.domain.models.platform import (
 )
 
 __all__ = [
+    "Account",
     "AuditEvent",
     "ConnectorLink",
+    "HouseholdPerson",
     "HouseholdSummary",
     "ImportBatch",
     "MemoryEntry",

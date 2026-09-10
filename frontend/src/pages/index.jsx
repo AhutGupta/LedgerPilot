@@ -46,12 +46,25 @@ function Table({ columns, rows, emptyLabel }) {
   );
 }
 
+function storageKeyForPerson(householdId) {
+  return `ledgerpilot-person-id:${householdId}`;
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "—";
+  }
+  return new Date(value).toLocaleString();
+}
+
 export default function HomePage() {
   const [mode, setMode] = useState("login");
   const [token, setToken] = useState("");
   const [profile, setProfile] = useState(null);
   const [households, setHouseholds] = useState([]);
+  const [people, setPeople] = useState([]);
   const [selectedHouseholdId, setSelectedHouseholdId] = useState("");
+  const [selectedPersonId, setSelectedPersonId] = useState("");
   const [dashboard, setDashboard] = useState(null);
   const [connectors, setConnectors] = useState([]);
   const [statusMessage, setStatusMessage] = useState("Create a profile or sign in to load a household dashboard.");
@@ -63,6 +76,7 @@ export default function HomePage() {
     household_name: "",
   });
   const [newHouseholdName, setNewHouseholdName] = useState("");
+  const [newPersonName, setNewPersonName] = useState("");
   const [uploadConnector, setUploadConnector] = useState("ibkr");
   const [uploadFile, setUploadFile] = useState(null);
 
@@ -70,6 +84,11 @@ export default function HomePage() {
     () => households.find((household) => household.id === selectedHouseholdId) || null,
     [households, selectedHouseholdId],
   );
+  const selectedPerson = useMemo(
+    () => people.find((person) => person.id === selectedPersonId) || dashboard?.selected_person || null,
+    [people, selectedPersonId, dashboard],
+  );
+  const selectedPersonDashboard = dashboard?.selected_person_dashboard || null;
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem("ledgerpilot-token");
@@ -89,12 +108,23 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    if (!selectedHouseholdId) {
+      setSelectedPersonId("");
+      setPeople([]);
+      return;
+    }
+    const savedPersonId = window.localStorage.getItem(storageKeyForPerson(selectedHouseholdId));
+    const fallbackPersonId = savedPersonId || selectedHousehold?.linked_person_id || "";
+    setSelectedPersonId(fallbackPersonId);
+  }, [selectedHouseholdId, selectedHousehold?.linked_person_id]);
+
+  useEffect(() => {
     if (!token || !selectedHouseholdId) {
       return;
     }
     window.localStorage.setItem("ledgerpilot-household-id", selectedHouseholdId);
-    loadDashboard(token, selectedHouseholdId);
-  }, [token, selectedHouseholdId]);
+    loadDashboard(token, selectedHouseholdId, selectedPersonId || selectedHousehold?.linked_person_id || "");
+  }, [token, selectedHouseholdId, selectedPersonId, selectedHousehold?.linked_person_id]);
 
   async function refreshSession(currentToken, preferredHouseholdId) {
     try {
@@ -105,6 +135,7 @@ export default function HomePage() {
       setSelectedHouseholdId(fallbackHouseholdId);
       if (!fallbackHouseholdId) {
         setDashboard(null);
+        setPeople([]);
       }
     } catch (error) {
       clearSession();
@@ -112,14 +143,27 @@ export default function HomePage() {
     }
   }
 
-  async function loadDashboard(currentToken, householdId) {
+  async function loadDashboard(currentToken, householdId, personId) {
     try {
       setIsLoading(true);
-      const data = await apiRequest(`/households/${householdId}/dashboard`, { token: currentToken });
+      const query = personId ? `?person_id=${encodeURIComponent(personId)}` : "";
+      const data = await apiRequest(`/households/${householdId}/dashboard${query}`, { token: currentToken });
       setDashboard(data);
-      setStatusMessage(`Loaded ${selectedHousehold?.name || "household"} dashboard.`);
+      setPeople(data.people || []);
+      if (data.selected_person?.id) {
+        window.localStorage.setItem(storageKeyForPerson(householdId), data.selected_person.id);
+        if (data.selected_person.id !== selectedPersonId) {
+          setSelectedPersonId(data.selected_person.id);
+        }
+      }
+      setStatusMessage(
+        data.selected_person?.full_name
+          ? `Loaded ${selectedHousehold?.name || "household"} with ${data.selected_person.full_name} selected.`
+          : `Loaded ${selectedHousehold?.name || "household"} dashboard.`,
+      );
     } catch (error) {
       setDashboard(null);
+      setPeople([]);
       setStatusMessage(error.message);
     } finally {
       setIsLoading(false);
@@ -142,6 +186,7 @@ export default function HomePage() {
       setHouseholds(data.households || []);
       const initialHouseholdId = data.households?.[0]?.id || "";
       setSelectedHouseholdId(initialHouseholdId);
+      setSelectedPersonId(data.households?.[0]?.linked_person_id || "");
       setStatusMessage(mode === "login" ? "Signed in." : "Profile created.");
       setAuthForm({ email: authForm.email, full_name: "", password: "", household_name: "" });
     } catch (error) {
@@ -168,6 +213,7 @@ export default function HomePage() {
       const nextHouseholds = [...households, data.household];
       setHouseholds(nextHouseholds);
       setSelectedHouseholdId(data.household.id);
+      setSelectedPersonId(data.household.linked_person_id || "");
       setNewHouseholdName("");
       setStatusMessage(`Created ${data.household.name}.`);
     } catch (error) {
@@ -177,26 +223,54 @@ export default function HomePage() {
     }
   }
 
+  async function handleCreatePerson(event) {
+    event.preventDefault();
+    if (!newPersonName.trim() || !selectedHouseholdId) {
+      setStatusMessage("Choose a household and enter a person name.");
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const data = await apiRequest(`/households/${selectedHouseholdId}/people`, {
+        token,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ full_name: newPersonName }),
+      });
+      setNewPersonName("");
+      setSelectedPersonId(data.person.id);
+      await loadDashboard(token, selectedHouseholdId, data.person.id);
+      setStatusMessage(`Created ${data.person.full_name}.`);
+    } catch (error) {
+      setStatusMessage(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleUpload(event) {
     event.preventDefault();
-    if (!uploadFile || !selectedHouseholdId) {
-      setStatusMessage("Choose a household and CSV file first.");
+    if (!uploadFile || !selectedHouseholdId || !selectedPersonId) {
+      setStatusMessage("Choose a household, person, and CSV file first.");
       return;
     }
     try {
       setIsLoading(true);
       const body = await uploadFile.text();
-      const result = await apiRequest(`/households/${selectedHouseholdId}/imports/${uploadConnector}`, {
-        token,
-        method: "POST",
-        headers: { "Content-Type": "text/csv" },
-        body,
-      });
-      await loadDashboard(token, selectedHouseholdId);
+      const result = await apiRequest(
+        `/households/${selectedHouseholdId}/people/${selectedPersonId}/imports/${uploadConnector}`,
+        {
+          token,
+          method: "POST",
+          headers: { "Content-Type": "text/csv" },
+          body,
+        },
+      );
+      await loadDashboard(token, selectedHouseholdId, selectedPersonId);
       setStatusMessage(
         result.idempotent
-          ? `Import already existed (${result.batch_id}).`
-          : `Imported ${result.row_count} normalized row(s) into batch ${result.batch_id}.`,
+          ? `Import already existed for ${result.person_name} (${result.batch_id}).`
+          : `Imported ${result.row_count} normalized row(s) for ${result.person_name} into batch ${result.batch_id}.`,
       );
     } catch (error) {
       setStatusMessage(error.message);
@@ -211,7 +285,9 @@ export default function HomePage() {
     setToken("");
     setProfile(null);
     setHouseholds([]);
+    setPeople([]);
     setSelectedHouseholdId("");
+    setSelectedPersonId("");
     setDashboard(null);
   }
 
@@ -219,11 +295,11 @@ export default function HomePage() {
     <main className="page">
       <section className="hero">
         <div>
-          <p className="eyebrow">LedgerPilot MVP</p>
-          <h1>Read-only household portfolio dashboard</h1>
+          <p className="eyebrow">✨ LedgerPilot MVP</p>
+          <h1>Household portfolio dashboard</h1>
           <p>
-            PostgreSQL-backed imports, durable idempotency, private raw CSV storage, and
-            per-household tenant isolation behind signed profile sessions.
+            Household analytics stay derived and tenant-scoped while uploads, accounts, and
+            transaction ownership can now be attributed to specific people inside each household.
           </p>
         </div>
         {profile ? (
@@ -294,7 +370,7 @@ export default function HomePage() {
         </section>
       ) : (
         <>
-          <section className="grid twoCol">
+          <section className="grid twoCol threeColOnWide">
             <section className="card stack">
               <div className="row between">
                 <h2>Households</h2>
@@ -325,6 +401,36 @@ export default function HomePage() {
             </section>
 
             <section className="card stack">
+              <div className="row between">
+                <h2>People</h2>
+                <span>{people.length || 0} in household</span>
+              </div>
+              <div className="pillRow">
+                {people.map((person) => (
+                  <button
+                    key={person.id}
+                    type="button"
+                    className={person.id === selectedPersonId ? "pill active" : "pill"}
+                    onClick={() => setSelectedPersonId(person.id)}
+                  >
+                    {person.full_name}
+                    {person.is_linked_profile ? " (you)" : ""}
+                  </button>
+                ))}
+              </div>
+              <form className="inlineForm" onSubmit={handleCreatePerson}>
+                <input
+                  placeholder="Add a household person"
+                  value={newPersonName}
+                  onChange={(event) => setNewPersonName(event.target.value)}
+                />
+                <button type="submit" disabled={isLoading || !selectedHouseholdId}>
+                  Add
+                </button>
+              </form>
+            </section>
+
+            <section className="card stack">
               <h2>Upload connector export</h2>
               <form className="stack" onSubmit={handleUpload}>
                 <label>
@@ -341,8 +447,8 @@ export default function HomePage() {
                   CSV export
                   <input type="file" accept=".csv,text/csv" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} />
                 </label>
-                <button type="submit" disabled={isLoading || !selectedHouseholdId}>
-                  Upload to {selectedHousehold?.name || "household"}
+                <button type="submit" disabled={isLoading || !selectedHouseholdId || !selectedPersonId}>
+                  Upload to {selectedPerson?.full_name || "person"}
                 </button>
               </form>
             </section>
@@ -369,7 +475,15 @@ export default function HomePage() {
                 </div>
                 <div>
                   <dt>As of</dt>
-                  <dd>{new Date(dashboard.as_of).toLocaleString()}</dd>
+                  <dd>{formatDateTime(dashboard.as_of)}</dd>
+                </div>
+                <div>
+                  <dt>Selected person</dt>
+                  <dd>{dashboard.selected_person?.full_name || "—"}</dd>
+                </div>
+                <div>
+                  <dt>Household people</dt>
+                  <dd>{dashboard.people?.length || 0}</dd>
                 </div>
               </dl>
             ) : null}
@@ -379,7 +493,7 @@ export default function HomePage() {
             <section className="grid twoCol">
               <section className="card stack">
                 <div className="row between">
-                  <h2>Portfolio summary</h2>
+                  <h2>Household summary</h2>
                   <span>{dashboard.policy?.name || "No policy"}</span>
                 </div>
                 <dl>
@@ -402,23 +516,119 @@ export default function HomePage() {
                 </dl>
               </section>
               <section className="card stack">
-                <h2>Warnings</h2>
-                {dashboard.warnings?.length ? (
-                  <ul>
-                    {dashboard.warnings.map((warning) => (
-                      <li key={warning}>{warning}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="empty">No freshness or policy warnings.</p>
-                )}
+                <div className="row between">
+                  <h2>Selected person portfolio</h2>
+                  <span>{selectedPerson?.full_name || "No person selected"}</span>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Market value</dt>
+                    <dd>{selectedPersonDashboard?.summary?.total_market_value || "0"}</dd>
+                  </div>
+                  <div>
+                    <dt>Accounts</dt>
+                    <dd>{selectedPersonDashboard?.summary?.accounts || "0"}</dd>
+                  </div>
+                  <div>
+                    <dt>Positions</dt>
+                    <dd>{selectedPersonDashboard?.summary?.positions || "0"}</dd>
+                  </div>
+                  <div>
+                    <dt>Cash-like weight</dt>
+                    <dd>{selectedPersonDashboard?.summary?.cash_like_weight_pct || "0"}%</dd>
+                  </div>
+                </dl>
               </section>
             </section>
           ) : null}
 
+          <section className="grid twoCol">
+            <section className="card stack">
+              <h2>People portfolio overview</h2>
+              <Table
+                columns={[
+                  { key: "person_name", label: "Person" },
+                  { key: "account_count", label: "Accounts" },
+                  { key: "import_count", label: "Imports" },
+                  { key: "market_value", label: "Market value" },
+                  { key: "latest_imported_at", label: "Latest import" },
+                ]}
+                rows={(dashboard?.person_portfolios || []).map((entry) => ({
+                  id: entry.person.id,
+                  person_name: `${entry.person.full_name}${entry.person.is_linked_profile ? " (you)" : ""}`,
+                  account_count: entry.account_count,
+                  import_count: entry.import_count,
+                  market_value: entry.summary.total_market_value,
+                  latest_imported_at: formatDateTime(entry.latest_imported_at),
+                }))}
+                emptyLabel="No people have been created yet."
+              />
+            </section>
+            <section className="card stack">
+              <h2>Warnings</h2>
+              {dashboard?.warnings?.length ? (
+                <ul>
+                  {dashboard.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty">No freshness or policy warnings.</p>
+              )}
+            </section>
+          </section>
+
           <section className="grid">
             <section className="card stack">
-              <h2>Holdings</h2>
+              <h2>Selected person accounts</h2>
+              <Table
+                columns={[
+                  { key: "display_name", label: "Account" },
+                  { key: "connector", label: "Connector" },
+                  { key: "created_at", label: "Created" },
+                ]}
+                rows={(selectedPersonDashboard?.accounts || []).map((account) => ({
+                  ...account,
+                  created_at: formatDateTime(account.created_at),
+                }))}
+                emptyLabel={selectedPersonId ? "No accounts for the selected person yet." : "Select a person."}
+              />
+            </section>
+            <section className="card stack">
+              <h2>Selected person import history</h2>
+              <Table
+                columns={[
+                  { key: "connector", label: "Connector" },
+                  { key: "row_count", label: "New rows" },
+                  { key: "imported_at", label: "Imported at" },
+                ]}
+                rows={(selectedPersonDashboard?.imports || []).map((item) => ({
+                  ...item,
+                  imported_at: formatDateTime(item.imported_at),
+                }))}
+                emptyLabel="No CSV exports have been imported for the selected person."
+              />
+            </section>
+            <section className="card stack">
+              <h2>Selected person transactions</h2>
+              <Table
+                columns={[
+                  { key: "transaction_date", label: "Date" },
+                  { key: "account_id", label: "Account" },
+                  { key: "symbol", label: "Symbol" },
+                  { key: "transaction_type", label: "Type" },
+                  { key: "quantity", label: "Quantity" },
+                  { key: "price", label: "Price" },
+                ]}
+                rows={(selectedPersonDashboard?.recent_transactions || []).map((item) => ({
+                  ...item,
+                  transaction_date: item.transaction_date,
+                }))}
+                emptyLabel="No transactions for the selected person yet."
+              />
+            </section>
+            <section className="card stack">
+              <h2>Household holdings</h2>
               <Table
                 columns={[
                   { key: "account_id", label: "Account" },
@@ -430,18 +640,6 @@ export default function HomePage() {
               />
             </section>
             <section className="card stack">
-               <h2>Import history</h2>
-               <Table
-                 columns={[
-                   { key: "connector", label: "Connector" },
-                   { key: "row_count", label: "New rows" },
-                   { key: "imported_at", label: "Imported at" },
-                 ]}
-                 rows={dashboard?.imports || []}
-                 emptyLabel="No CSV exports have been imported."
-               />
-             </section>
-             <section className="card stack">
               <h2>Tax lots</h2>
               <Table
                 columns={[
@@ -471,9 +669,26 @@ export default function HomePage() {
               />
             </section>
             <section className="card stack">
+              <h2>Household import history</h2>
+              <Table
+                columns={[
+                  { key: "person_name", label: "Person" },
+                  { key: "connector", label: "Connector" },
+                  { key: "row_count", label: "New rows" },
+                  { key: "imported_at", label: "Imported at" },
+                ]}
+                rows={(dashboard?.imports || []).map((item) => ({
+                  ...item,
+                  imported_at: formatDateTime(item.imported_at),
+                }))}
+                emptyLabel="No CSV exports have been imported."
+              />
+            </section>
+            <section className="card stack">
               <h2>Recent syncs</h2>
               <Table
                 columns={[
+                  { key: "person_name", label: "Person" },
                   { key: "trigger", label: "Trigger" },
                   { key: "status", label: "Status" },
                   { key: "summary", label: "Summary" },

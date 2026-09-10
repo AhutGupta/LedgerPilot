@@ -8,7 +8,7 @@ It is **read-only and advisory** (Observe → Analyze → Recommend → Explain)
 The current MVP now delivers a compact, coherent backend for tenant-scoped dashboarding and AI-assisted analysis:
 
 1. **Profile auth + tenant authorization** — bearer-authenticated users only see households they belong to.
-2. **Canonical ledger ingestion** — CSV imports normalize into an authoritative household ledger with durable idempotency.
+2. **Canonical ledger ingestion with person ownership** — CSV imports normalize into an authoritative household ledger while attributing accounts, imports, and transactions to people inside the household.
 3. **Encrypted raw retention** — raw uploads are stored privately as encrypted envelopes, not plaintext CSVs.
 4. **Secret-provider abstraction** — secret lookups are routed through pluggable providers (`env` now, registry-ready for others).
 5. **Reusable dashboard application service** — dashboard, report, recommendation, and AI-tool reads reuse the same service layer.
@@ -27,17 +27,23 @@ The current MVP now delivers a compact, coherent backend for tenant-scoped dashb
 - `GET /api/v1/me`
 - `GET /api/v1/households`
 - `POST /api/v1/households`
+- `GET|POST /api/v1/households/{household_id}/people`
 
 ### Ledger, dashboard, and analysis
 
 - `POST /api/v1/households/{household_id}/imports/{connector}`
+- `POST /api/v1/households/{household_id}/people/{person_id}/imports/{connector}`
 - `GET /api/v1/households/{household_id}/dashboard`
+- `GET /api/v1/households/{household_id}/accounts`
+- `GET /api/v1/households/{household_id}/transactions`
 - `GET /api/v1/households/{household_id}/holdings`
 - `GET /api/v1/households/{household_id}/tax-lots`
 - `POST /api/v1/households/{household_id}/simulate-sale`
 - `GET /api/v1/households/{household_id}/recommendations`
 - `GET /api/v1/households/{household_id}/reports/quarterly-review`
 - `GET /api/v1/households/{household_id}/reports/ytd-realized-gains`
+
+Dashboard responses stay household-derived, but now also include household people, per-person portfolio rollups, and a selected-person view for person-scoped uploads and review flows.
 
 ### Policy, memory, connector, sync, snapshot, audit
 
@@ -66,9 +72,12 @@ Current tool catalog:
 
 ## CSV contract
 
-CSV still requires `account_id,symbol,transaction_date,quantity,price,type`; optional
-`market_price,cost_basis,lot_id,external_id` improve valuation and tax-lot reconstruction.
-Supported types are `BUY`, `SELL`, and `TRANSFER_IN`.
+Canonical fields are still `account_id,symbol,transaction_date,quantity,price,type`, with optional
+`market_price,cost_basis,lot_id,external_id`. The importer now also accepts common broker-style
+header variants such as `Account Number`, `Security Symbol`, `Trade Date`, `Shares`, `Action`,
+`Net Amount`, and `Transaction ID`, supports comma/semicolon/tab-delimited files, can derive price
+from amount when needed, and returns row-level validation errors with found headers/details.
+Supported normalized types are `BUY`, `SELL`, and `TRANSFER_IN`.
 
 ## Product boundaries (MVP)
 
@@ -125,8 +134,9 @@ Or run the stack with Docker:
 docker compose -f infra/docker-compose.yml up --build
 ```
 
-Then visit <http://localhost:3000>, register a profile, choose a household, upload a CSV,
-and review holdings, tax lots, policy-driven recommendations, sync history, and dashboard metadata.
+Then visit <http://localhost:3000>, register a profile, choose a household, select or create a
+person, upload a CSV under that person, and review both household-derived analytics and person-level
+ownership for accounts, imports, and transactions.
 Only port `3000` is published to the host; the dashboard proxies `/api` requests to the private API
 container, and PostgreSQL is available only within the Compose network.
 

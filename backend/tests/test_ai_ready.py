@@ -11,6 +11,7 @@ def _tx(*, tx_id: str, account_id: str, symbol: str, tx_date: str, quantity: str
     return Transaction(
         id=tx_id,
         household_id="household-1",
+        household_person_id="person-1",
         account_id=account_id,
         symbol=symbol,
         transaction_date=date.fromisoformat(tx_date),

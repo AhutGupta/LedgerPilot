@@ -9,6 +9,7 @@ from typing import Any
 class ConnectorLink:
     id: str
     household_id: str
+    household_person_id: str
     connector: str
     display_name: str
     status: str
@@ -20,12 +21,14 @@ class ConnectorLink:
     last_synced_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    person_name: str | None = None
 
 
 @dataclass(frozen=True)
 class SyncRun:
     id: str
     household_id: str
+    household_person_id: str | None
     connector_link_id: str | None
     trigger: str
     status: str
@@ -34,6 +37,7 @@ class SyncRun:
     created_by_profile_id: str
     started_at: datetime
     completed_at: datetime | None
+    person_name: str | None = None
 
 
 @dataclass(frozen=True)
