@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, households, ledger
+from app.api.routes import ai, audit, auth, households, ledger, memory, recommendations, reports
 from app.config import get_settings
 from app.db.session import run_migrations
 from app.services.raw_uploads import raw_upload_store
@@ -21,7 +21,7 @@ async def lifespan(_: FastAPI):
 
 
 settings = get_settings()
-app = FastAPI(title="LedgerPilot", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="LedgerPilot", version="0.3.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
@@ -32,6 +32,11 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(households.router, prefix="/api/v1")
 app.include_router(ledger.router, prefix="/api/v1")
+app.include_router(memory.router, prefix="/api/v1")
+app.include_router(audit.router, prefix="/api/v1")
+app.include_router(recommendations.router, prefix="/api/v1")
+app.include_router(reports.router, prefix="/api/v1")
+app.include_router(ai.router, prefix="/api/v1")
 
 
 @app.get("/")

@@ -16,6 +16,8 @@ class Settings:
     frontend_origin: str
     auth_secret: str
     access_token_ttl_seconds: int
+    secret_provider: str
+    raw_encryption_secret_name: str
 
 
 @lru_cache(maxsize=1)
@@ -40,4 +42,9 @@ def get_settings() -> Settings:
         frontend_origin=os.getenv("LEDGERPILOT_FRONTEND_ORIGIN", "http://localhost:3000"),
         auth_secret=os.getenv("LEDGERPILOT_AUTH_SECRET", "ledgerpilot-dev-only-change-me"),
         access_token_ttl_seconds=int(os.getenv("LEDGERPILOT_ACCESS_TOKEN_TTL_SECONDS", "43200")),
+        secret_provider=os.getenv("LEDGERPILOT_SECRET_PROVIDER", "env"),
+        raw_encryption_secret_name=os.getenv(
+            "LEDGERPILOT_RAW_ENCRYPTION_SECRET_NAME",
+            "LEDGERPILOT_RAW_UPLOAD_ENCRYPTION_KEY",
+        ),
     )

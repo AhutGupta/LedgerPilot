@@ -375,6 +375,47 @@ export default function HomePage() {
             ) : null}
           </section>
 
+          {dashboard ? (
+            <section className="grid twoCol">
+              <section className="card stack">
+                <div className="row between">
+                  <h2>Portfolio summary</h2>
+                  <span>{dashboard.policy?.name || "No policy"}</span>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Market value</dt>
+                    <dd>{dashboard.summary?.total_market_value || "0"}</dd>
+                  </div>
+                  <div>
+                    <dt>Cost basis</dt>
+                    <dd>{dashboard.summary?.total_cost_basis || "0"}</dd>
+                  </div>
+                  <div>
+                    <dt>Unrealized gain</dt>
+                    <dd>{dashboard.summary?.total_unrealized_gain || "0"}</dd>
+                  </div>
+                  <div>
+                    <dt>Cash-like weight</dt>
+                    <dd>{dashboard.summary?.cash_like_weight_pct || "0"}%</dd>
+                  </div>
+                </dl>
+              </section>
+              <section className="card stack">
+                <h2>Warnings</h2>
+                {dashboard.warnings?.length ? (
+                  <ul>
+                    {dashboard.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="empty">No freshness or policy warnings.</p>
+                )}
+              </section>
+            </section>
+          ) : null}
+
           <section className="grid">
             <section className="card stack">
               <h2>Holdings</h2>
@@ -426,6 +467,32 @@ export default function HomePage() {
                 ]}
                 rows={dashboard?.migration_plan || []}
                 emptyLabel={selectedHouseholdId ? "No migration recommendations yet." : "Select a household."}
+              />
+            </section>
+            <section className="card stack">
+              <h2>Rebalance recommendations</h2>
+              <Table
+                columns={[
+                  { key: "symbol", label: "Symbol" },
+                  { key: "current_weight_pct", label: "Current %" },
+                  { key: "target_weight_pct", label: "Target %" },
+                  { key: "action", label: "Action" },
+                  { key: "estimated_trade_value", label: "Trade value" },
+                ]}
+                rows={dashboard?.recommendations || []}
+                emptyLabel="No policy-driven rebalance actions yet."
+              />
+            </section>
+            <section className="card stack">
+              <h2>Recent syncs</h2>
+              <Table
+                columns={[
+                  { key: "trigger", label: "Trigger" },
+                  { key: "status", label: "Status" },
+                  { key: "summary", label: "Summary" },
+                ]}
+                rows={dashboard?.recent_syncs || []}
+                emptyLabel="No sync runs recorded yet."
               />
             </section>
           </section>
