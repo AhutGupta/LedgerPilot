@@ -18,6 +18,9 @@ class Settings:
     access_token_ttl_seconds: int
     secret_provider: str
     raw_encryption_secret_name: str
+    plaid_client_id: str | None
+    plaid_secret: str | None
+    plaid_environment: str
 
 
 @lru_cache(maxsize=1)
@@ -47,4 +50,7 @@ def get_settings() -> Settings:
             "LEDGERPILOT_RAW_ENCRYPTION_SECRET_NAME",
             "LEDGERPILOT_RAW_UPLOAD_ENCRYPTION_KEY",
         ),
+        plaid_client_id=os.getenv("LEDGERPILOT_PLAID_CLIENT_ID"),
+        plaid_secret=os.getenv("LEDGERPILOT_PLAID_SECRET"),
+        plaid_environment=os.getenv("LEDGERPILOT_PLAID_ENVIRONMENT", "sandbox"),
     )

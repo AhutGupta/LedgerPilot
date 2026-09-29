@@ -47,6 +47,10 @@ class CreateSnapshotRequest(BaseModel):
     snapshot_type: str = "dashboard"
 
 
+class PlaidExchangeRequest(BaseModel):
+    public_token: str = Field(min_length=1, max_length=2048)
+
+
 class SaleSimulationRequest(BaseModel):
     symbol: str
     quantity: Any
@@ -86,6 +90,41 @@ def import_csv_for_person(
     profile: Annotated[Profile, Depends(require_profile)],
 ) -> dict:
     return _import_csv_for_person(household_id, person_id, connector, body, response, profile)
+
+
+@router.post("/households/{household_id}/people/{person_id}/plaid/link-token")
+def create_plaid_link_token(
+    household_id: str,
+    person_id: str,
+    profile: Annotated[Profile, Depends(require_profile)],
+) -> dict:
+    try:
+        return household_app_service.create_plaid_link_token(profile.id, household_id, person_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.post("/households/{household_id}/people/{person_id}/plaid/exchange", status_code=status.HTTP_201_CREATED)
+def exchange_plaid_public_token(
+    household_id: str,
+    person_id: str,
+    payload: PlaidExchangeRequest,
+    profile: Annotated[Profile, Depends(require_profile)],
+) -> dict:
+    try:
+        result = household_app_service.import_plaid_holdings(profile.id, household_id, person_id, payload.public_token)
+        return {
+            "connector": result["connector"],
+            "person": result["person"],
+            "row_count": result["batch"].row_count,
+            "snapshot_id": result["snapshot"].id,
+        }
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.get("/households/{household_id}/dashboard")

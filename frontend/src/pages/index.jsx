@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1";
+const PLAID_LINK_SCRIPT_URL = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
 
 async function apiRequest(path, { token, method = "GET", body, headers = {} } = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -16,6 +17,26 @@ async function apiRequest(path, { token, method = "GET", body, headers = {} } = 
     throw new Error(payload.detail || "Request failed");
   }
   return payload;
+}
+
+function loadPlaidLink() {
+  if (window.Plaid) {
+    return Promise.resolve(window.Plaid);
+  }
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${PLAID_LINK_SCRIPT_URL}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.Plaid), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Could not load Plaid Link.")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = PLAID_LINK_SCRIPT_URL;
+    script.async = true;
+    script.onload = () => resolve(window.Plaid);
+    script.onerror = () => reject(new Error("Could not load Plaid Link."));
+    document.head.appendChild(script);
+  });
 }
 
 function Table({ columns, rows, emptyLabel }) {
@@ -79,6 +100,7 @@ export default function HomePage() {
   const [newPersonName, setNewPersonName] = useState("");
   const [uploadConnector, setUploadConnector] = useState("ibkr");
   const [uploadFile, setUploadFile] = useState(null);
+  const [isPlaidConnecting, setIsPlaidConnecting] = useState(false);
 
   const selectedHousehold = useMemo(
     () => households.find((household) => household.id === selectedHouseholdId) || null,
@@ -279,6 +301,58 @@ export default function HomePage() {
     }
   }
 
+  async function handlePlaidConnect() {
+    if (!selectedHouseholdId || !selectedPersonId) {
+      setStatusMessage("Choose a household and person before connecting an investment account.");
+      return;
+    }
+    try {
+      setIsPlaidConnecting(true);
+      setStatusMessage("Preparing secure Plaid connection…");
+      const { link_token: linkToken } = await apiRequest(
+        `/households/${selectedHouseholdId}/people/${selectedPersonId}/plaid/link-token`,
+        { token, method: "POST" },
+      );
+      const Plaid = await loadPlaidLink();
+      if (!Plaid) {
+        throw new Error("Plaid Link did not initialize.");
+      }
+      const handler = Plaid.create({
+        token: linkToken,
+        onSuccess: async (publicToken) => {
+          try {
+            setStatusMessage("Importing your current investment positions…");
+            const result = await apiRequest(
+              `/households/${selectedHouseholdId}/people/${selectedPersonId}/plaid/exchange`,
+              {
+                token,
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ public_token: publicToken }),
+              },
+            );
+            await loadDashboard(token, selectedHouseholdId, selectedPersonId);
+            setStatusMessage(`Imported ${result.row_count} current investment position(s) for ${result.person.full_name}.`);
+          } catch (error) {
+            setStatusMessage(error.message);
+          } finally {
+            setIsPlaidConnecting(false);
+          }
+        },
+        onExit: (_, error) => {
+          if (error) {
+            setStatusMessage("Plaid connection was not completed. You can try again.");
+          }
+          setIsPlaidConnecting(false);
+        },
+      });
+      handler.open();
+    } catch (error) {
+      setStatusMessage(error.message);
+      setIsPlaidConnecting(false);
+    }
+  }
+
   function clearSession() {
     window.localStorage.removeItem("ledgerpilot-token");
     window.localStorage.removeItem("ledgerpilot-household-id");
@@ -359,7 +433,7 @@ export default function HomePage() {
                 type="password"
                 value={authForm.password}
                 onChange={(event) => setAuthForm({ ...authForm, password: event.target.value })}
-                minLength={12}
+                minLength={8}
                 required
               />
             </label>
@@ -431,7 +505,20 @@ export default function HomePage() {
             </section>
 
             <section className="card stack">
-              <h2>Upload connector export</h2>
+              <h2>Connect investment account</h2>
+              <p className="empty">
+                Use Plaid to import your current investment positions once. Automatic refresh and tax-lot history are
+                intentionally deferred for this MVP.
+              </p>
+              <button
+                type="button"
+                onClick={handlePlaidConnect}
+                disabled={isLoading || isPlaidConnecting || !selectedHouseholdId || !selectedPersonId}
+              >
+                {isPlaidConnecting ? "Connecting…" : `Connect with Plaid for ${selectedPerson?.full_name || "person"}`}
+              </button>
+              <details className="csvHelp">
+                <summary>Or upload a CSV export</summary>
               <form className="stack" onSubmit={handleUpload}>
                 <label>
                   Connector
@@ -464,6 +551,7 @@ export default function HomePage() {
                   Upload to {selectedPerson?.full_name || "person"}
                 </button>
               </form>
+              </details>
             </section>
           </section>
 

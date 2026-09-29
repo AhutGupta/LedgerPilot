@@ -8,7 +8,7 @@ It is **read-only and advisory** (Observe → Analyze → Recommend → Explain)
 The current MVP now delivers a compact, coherent backend for tenant-scoped dashboarding and AI-assisted analysis:
 
 1. **Profile auth + tenant authorization** — bearer-authenticated users only see households they belong to.
-2. **Canonical ledger ingestion with person ownership** — CSV imports normalize into an authoritative household ledger while attributing accounts, imports, and transactions to people inside the household.
+2. **Portfolio ingestion with person ownership** — Plaid imports current investment positions; CSV is retained as an optional fallback. Both normalize into an authoritative household ledger while attributing accounts, imports, and transactions to people inside the household.
 3. **Encrypted raw retention** — raw uploads are stored privately as encrypted envelopes, not plaintext CSVs.
 4. **Secret-provider abstraction** — secret lookups are routed through pluggable providers (`env` now, registry-ready for others).
 5. **Reusable dashboard application service** — dashboard, report, recommendation, and AI-tool reads reuse the same service layer.
@@ -33,6 +33,8 @@ The current MVP now delivers a compact, coherent backend for tenant-scoped dashb
 
 - `POST /api/v1/households/{household_id}/imports/{connector}`
 - `POST /api/v1/households/{household_id}/people/{person_id}/imports/{connector}`
+- `POST /api/v1/households/{household_id}/people/{person_id}/plaid/link-token`
+- `POST /api/v1/households/{household_id}/people/{person_id}/plaid/exchange`
 - `GET /api/v1/households/{household_id}/dashboard`
 - `GET /api/v1/households/{household_id}/accounts`
 - `GET /api/v1/households/{household_id}/transactions`
@@ -44,6 +46,24 @@ The current MVP now delivers a compact, coherent backend for tenant-scoped dashb
 - `GET /api/v1/households/{household_id}/reports/ytd-realized-gains`
 
 Dashboard responses stay household-derived, but now also include household people, per-person portfolio rollups, and a selected-person view for person-scoped uploads and review flows.
+
+### Plaid connection (MVP)
+
+Plaid is the primary MVP intake path. Select a person, choose **Connect with Plaid**, complete Plaid Link,
+and LedgerPilot imports the account's current investment positions once. The access token is encrypted before
+being saved, and is never returned through the API or dashboard.
+
+This is intentionally a current-position import: it supplies holdings and market value for portfolio viewing,
+not historical activity or verified tax lots. Automatic refresh, incremental transaction sync, and tax-lot
+reconciliation are deferred; CSV remains available when history is required.
+
+Set these server-side environment variables to enable the button:
+
+```text
+LEDGERPILOT_PLAID_CLIENT_ID=...
+LEDGERPILOT_PLAID_SECRET=...
+LEDGERPILOT_PLAID_ENVIRONMENT=sandbox  # sandbox, development, or production
+```
 
 ### Policy, memory, connector, sync, snapshot, audit
 
@@ -70,7 +90,7 @@ Current tool catalog:
 - `list_memory`
 - `get_policy`
 
-## CSV contract
+## CSV fallback
 
 The upload format is visible in the dashboard and documented here. LedgerPilot accepts a normal
 transaction table with these required values:
@@ -99,12 +119,15 @@ Supported normalized types are `BUY`, `SELL`, and `TRANSFER_IN`.
 
 ## Product boundaries (MVP)
 
-- ✅ Consolidate data from broker/bank connectors and file imports
+- ✅ Connect an investment institution through Plaid for one-time current-position imports
+- ✅ Import a broker CSV as an optional fallback
 - ✅ Normalize into a canonical ledger with provenance and auditability
 - ✅ Run deterministic portfolio, tax, and report analysis
-- ✅ Expose results in a read-only UI and via an AI assistant tool API
+- ✅ Expose results in a dashboard and via an AI assistant tool API
 - ❌ No buy/sell/transfer execution APIs
 - ❌ No direct AI database access
+- ❌ No automated Plaid refresh or historical tax-lot reconciliation
+- ❌ No LLM chat UI or hosted AI model connection; the MVP provides the safe tool contract only
 
 ## Optimized data path
 
@@ -132,6 +155,8 @@ Set these before starting the backend:
 - `LEDGERPILOT_SECRET_PROVIDER` (optional, defaults to `env`)
 - `LEDGERPILOT_RAW_ENCRYPTION_SECRET_NAME` (optional, defaults to `LEDGERPILOT_RAW_UPLOAD_ENCRYPTION_KEY`)
 - `LEDGERPILOT_RAW_UPLOAD_ENCRYPTION_KEY` (recommended for encrypted raw storage; backend falls back to the auth secret if omitted)
+- `LEDGERPILOT_PLAID_CLIENT_ID` and `LEDGERPILOT_PLAID_SECRET` (required only to enable Plaid)
+- `LEDGERPILOT_PLAID_ENVIRONMENT` (optional, defaults to `sandbox`)
 
 ## Run locally
 

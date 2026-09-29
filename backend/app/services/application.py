@@ -19,9 +19,60 @@ from app.services.engines import (
     tax_lots,
 )
 from app.services.ledger import CAPABILITIES, repository
+from app.services.plaid import PlaidClient, holdings_to_csv
 
 
 class HouseholdApplicationService:
+    def create_plaid_link_token(self, profile_id: str, household_id: str, household_person_id: str) -> dict:
+        person = self._resolve_person_for_write(profile_id, household_id, household_person_id)
+        link_token = PlaidClient().create_link_token(profile_id=profile_id, person_name=person.full_name)
+        return {"link_token": link_token, "person": person}
+
+    def import_plaid_holdings(
+        self,
+        profile_id: str,
+        household_id: str,
+        household_person_id: str,
+        public_token: str,
+    ) -> dict:
+        person = self._resolve_person_for_write(profile_id, household_id, household_person_id)
+        access_token, item_id, holdings_payload = PlaidClient().exchange_and_get_holdings(public_token)
+        csv_content = holdings_to_csv(holdings_payload, item_id=item_id)
+        if len(csv_content.splitlines()) <= 1:
+            raise ValueError("Plaid returned no supported investment positions for this account.")
+        imported = self.import_csv(profile_id, household_id, person.id, "plaid", csv_content)
+        connector = repository.upsert_connector_link(
+            profile_id=profile_id,
+            household_id=household_id,
+            household_person_id=person.id,
+            connector="plaid",
+            display_name=f"{person.full_name} Plaid investment connection",
+            status="active",
+            secret_provider="env",
+            secret_reference=None,
+            external_reference=item_id,
+            capabilities=CAPABILITIES["plaid"],
+        )
+        repository.save_plaid_access_token(
+            connector_link_id=connector.id,
+            item_id=item_id,
+            access_token=access_token,
+        )
+        repository.record_audit_event(
+            profile_id=profile_id,
+            household_id=household_id,
+            event_type="plaid.initial_holdings.completed",
+            entity_type="connector_link",
+            entity_id=connector.id,
+            details={
+                "connector": "plaid",
+                "item_id": item_id,
+                "person_id": person.id,
+                "row_count": imported["batch"].row_count,
+            },
+        )
+        return {**imported, "connector": connector, "item_id": item_id}
+
     def import_csv(self, profile_id: str, household_id: str, household_person_id: str | None, connector: str, content: str) -> dict:
         person = self._resolve_person_for_write(profile_id, household_id, household_person_id)
         batch, idempotent = repository.import_csv(profile_id, household_id, person.id, connector, content)

@@ -4,3 +4,6 @@ __pycache__/
 backend/data/
 frontend/.next/
 frontend/node_modules/
+.env
+.env.*
+!.env.example

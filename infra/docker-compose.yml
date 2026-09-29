@@ -29,6 +29,9 @@ services:
       LEDGERPILOT_AUTH_SECRET: ledgerpilot-local-dev-secret
       LEDGERPILOT_FRONTEND_ORIGIN: http://localhost:3000
       LEDGERPILOT_RAW_UPLOAD_ROOT: data/raw-imports
+      LEDGERPILOT_PLAID_CLIENT_ID: ${LEDGERPILOT_PLAID_CLIENT_ID:-}
+      LEDGERPILOT_PLAID_SECRET: ${LEDGERPILOT_PLAID_SECRET:-}
+      LEDGERPILOT_PLAID_ENVIRONMENT: ${LEDGERPILOT_PLAID_ENVIRONMENT:-sandbox}
     volumes:
       - ../backend/data:/app/data
     healthcheck:

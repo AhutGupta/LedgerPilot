@@ -19,7 +19,7 @@ from app.services.ledger import repository
 
 
 PASSWORD_HASH_ITERATIONS = 390_000
-MIN_PASSWORD_LENGTH = 12
+MIN_PASSWORD_LENGTH = 8
 bearer_scheme = HTTPBearer(auto_error=False)
 
 

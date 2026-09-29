@@ -2,6 +2,7 @@ import pytest
 
 from app.services.engines import holdings, tax_lots
 from app.services.ledger import LedgerStore, normalize_csv_rows
+from app.services.plaid import holdings_to_csv
 
 
 CSV = """account_id,symbol,transaction_date,quantity,price,market_price,type,cost_basis,lot_id,external_id
@@ -125,4 +126,29 @@ Trades,Data,Order,Stocks,USD,BND,2026-01-16,-3,70.00,210.00
     assert [(row.account_id, row.symbol, row.transaction_type) for row in rows] == [
         ("DU123456", "VTI", "BUY"),
         ("DU123456", "BND", "SELL"),
+    ]
+
+
+def test_plaid_holdings_create_current_position_transfer_rows() -> None:
+    csv_content = holdings_to_csv(
+        {
+            "accounts": [{"account_id": "plaid-account-1"}],
+            "holdings": [
+                {
+                    "account_id": "plaid-account-1",
+                    "security_id": "security-1",
+                    "quantity": 2,
+                    "institution_price": 205,
+                    "institution_value": 410,
+                }
+            ],
+            "securities": [{"security_id": "security-1", "ticker": "VTI"}],
+        },
+        item_id="item-1",
+        as_of=__import__("datetime").date(2026, 9, 29),
+    )
+    rows = normalize_csv_rows(csv_content, "household-1", "person-1", "batch-1")
+
+    assert [(row.account_id, row.symbol, row.transaction_type, str(row.quantity), str(row.price)) for row in rows] == [
+        ("plaid-account-1", "VTI", "TRANSFER_IN", "2", "205"),
     ]

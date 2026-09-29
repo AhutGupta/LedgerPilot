@@ -75,6 +75,14 @@ CAPABILITIES = {
         "historical_import": True,
         "incremental_sync": False,
     },
+    "plaid": {
+        "balances": True,
+        "positions": True,
+        "transactions": False,
+        "tax_lots": False,
+        "historical_import": False,
+        "incremental_sync": False,
+    },
 }
 SUPPORTED_TYPES = {"BUY", "SELL", "TRANSFER_IN"}
 REQUIRED_COLUMNS = {"account_id", "symbol", "transaction_date", "quantity", "type"}
@@ -731,6 +739,27 @@ class LedgerRepository:
                 (household_id,),
             ).fetchall()
         return [self._map_connector_link(row) for row in rows]
+
+    def save_plaid_access_token(self, *, connector_link_id: str, item_id: str, access_token: str) -> None:
+        from app.services.secrets.crypto import EncryptedPayloadCodec
+
+        encrypted_token = EncryptedPayloadCodec().encrypt_text(
+            access_token,
+            aad={"connector": "plaid", "connector_link_id": connector_link_id, "item_id": item_id},
+        )
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO plaid_items (connector_link_id, item_id, encrypted_access_token, created_at, updated_at)
+                VALUES (%s, %s, %s, NOW(), NOW())
+                ON CONFLICT (connector_link_id) DO UPDATE SET
+                    item_id = EXCLUDED.item_id,
+                    encrypted_access_token = EXCLUDED.encrypted_access_token,
+                    updated_at = NOW()
+                """,
+                (connector_link_id, item_id, encrypted_token),
+            )
+            connection.commit()
 
     def record_sync_run(
         self,
