@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import PlanningPanel from "../components/PlanningPanel";
+import TaxPanel from "../components/TaxPanel";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1";
 const PLAID_LINK_SCRIPT_URL = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
@@ -749,9 +749,9 @@ export default function HomePage() {
           </div>
         </section>
 
-        {dashboard?.warnings?.length ? (
+        {dashboard?.warnings?.filter((w) => !/policy/i.test(w)).length ? (
           <div className="banner" role="status">
-            <strong>Heads up:</strong> {dashboard.warnings.join(" ")}
+            <strong>Heads up:</strong> {dashboard.warnings.filter((w) => !/policy/i.test(w)).join(" ")}
           </div>
         ) : null}
 
@@ -840,13 +840,13 @@ export default function HomePage() {
           </div>
         </section>
 
-        <PlanningPanel
+        <TaxPanel
           householdId={selectedHouseholdId}
           request={request}
-          policy={dashboard?.policy}
-          allocation={dashboard?.allocation}
-          holdings={dashboard?.holdings}
-          onPolicySaved={() => loadDashboard(token, selectedHouseholdId, selectedPersonId)}
+          sales={viewFor("tax")?.realized_gains?.sales || []}
+          holdings={viewFor("tax")?.holdings || []}
+          scope={scopeOf("tax")}
+          onScope={setScope("tax")}
         />
 
         <section className="sectionGrid">
@@ -920,19 +920,6 @@ export default function HomePage() {
             />
           </SectionCard>
 
-          <SectionCard title="Rebalance recommendations" accent={SECTION_ACCENTS.recs} scope={scopeOf("recs")} onScope={setScope("recs")}>
-            <Table
-              columns={[
-                { key: "symbol", label: "Symbol" },
-                { key: "current_weight_pct", label: "Current %", numeric: true },
-                { key: "target_weight_pct", label: "Target %", numeric: true },
-                { key: "action", label: "Action", render: (row) => <span className={`tag ${String(row.action).toLowerCase()}`}>{row.action}</span> },
-                { key: "estimated_trade_value", label: "Trade value", numeric: true, render: (row) => money(row.estimated_trade_value) },
-              ]}
-              rows={viewFor("recs")?.recommendations || []}
-              emptyLabel="No policy-driven rebalance actions yet. Add a household policy to enable them."
-            />
-          </SectionCard>
         </section>
       </main>
     </div>
