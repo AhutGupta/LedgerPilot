@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import PlanningPanel from "../components/PlanningPanel";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1";
 const PLAID_LINK_SCRIPT_URL = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
@@ -548,6 +549,7 @@ export default function HomePage() {
     setDashboard(null);
   }
 
+  const request = useCallback((path, options = {}) => apiRequest(path, { token, ...options }), [token]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [scopes, setScopes] = useState({});
   const [showCsv, setShowCsv] = useState(false);
@@ -837,6 +839,15 @@ export default function HomePage() {
             {!dashboard?.person_portfolios?.length ? <p className="empty">No people yet.</p> : null}
           </div>
         </section>
+
+        <PlanningPanel
+          householdId={selectedHouseholdId}
+          request={request}
+          policy={dashboard?.policy}
+          allocation={dashboard?.allocation}
+          holdings={dashboard?.holdings}
+          onPolicySaved={() => loadDashboard(token, selectedHouseholdId, selectedPersonId)}
+        />
 
         <section className="sectionGrid">
           <SectionCard title="Holdings" accent={SECTION_ACCENTS.holdings} scope={scopeOf("holdings")} onScope={setScope("holdings")} count={holdingRows("holdings").length}>
