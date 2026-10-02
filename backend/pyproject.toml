@@ -5,11 +5,16 @@ description = "Read-only canonical portfolio ledger API"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.116.1",
+    "cryptography==50.0.0",
+    "psycopg[binary]==3.2.9",
     "uvicorn==0.35.0",
 ]
 
 [project.optional-dependencies]
 dev = ["httpx==0.28.1", "pytest==8.4.1"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -1,6 +1,55 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ledgerpilot
+      POSTGRES_USER: ledgerpilot
+      POSTGRES_PASSWORD: ledgerpilot
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerpilot -d ledgerpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   api:
     build:
       context: ../backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+    environment:
+      LEDGERPILOT_DB_HOST: postgres
+      LEDGERPILOT_DB_PORT: "5432"
+      LEDGERPILOT_DB_NAME: ledgerpilot
+      LEDGERPILOT_DB_USER: ledgerpilot
+      LEDGERPILOT_DB_PASSWORD: ledgerpilot
+      LEDGERPILOT_AUTH_SECRET: ledgerpilot-local-dev-secret
+      LEDGERPILOT_FRONTEND_ORIGIN: http://localhost:3000
+      LEDGERPILOT_RAW_UPLOAD_ROOT: data/raw-imports
+      LEDGERPILOT_PLAID_CLIENT_ID: ${LEDGERPILOT_PLAID_CLIENT_ID:-}
+      LEDGERPILOT_PLAID_SECRET: ${LEDGERPILOT_PLAID_SECRET:-}
+      LEDGERPILOT_PLAID_ENVIRONMENT: ${LEDGERPILOT_PLAID_ENVIRONMENT:-sandbox}
+    volumes:
+      - ../backend/data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  frontend:
+    build:
+      context: ../frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: /api/v1
     ports:
-      - "8000:8000"
+      - "3000:3000"
+
+volumes:
+  postgres-data:

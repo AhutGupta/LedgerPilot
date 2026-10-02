@@ -3,190 +3,184 @@
 LedgerPilot is a self-hosted, multi-user portfolio intelligence platform for households.
 It is **read-only and advisory** (Observe → Analyze → Recommend → Explain), with no trade execution or money movement.
 
-## Implemented vertical slice
+## AI-ready LedgerPilot MVP (10 points)
 
-The backend now provides a small, runnable read-only API for the initial workflow:
+The current MVP now delivers a compact, coherent backend for tenant-scoped dashboarding and AI-assisted analysis:
 
-- `POST /api/v1/households/{household_id}/imports/{connector}` accepts a CSV body.
-- `GET /api/v1/households/{household_id}/holdings`, `tax-lots`, and `migration-plan` return derived views with snapshot metadata.
-- `GET /api/v1/connectors` exposes explicit capability flags for IBKR, Fidelity, Robinhood, BofA, and Wealthfront.
+1. **Profile auth + tenant authorization** — bearer-authenticated users only see households they belong to.
+2. **Portfolio ingestion with person ownership** — Plaid imports current investment positions; CSV is retained as an optional fallback. Both normalize into an authoritative household ledger while attributing accounts, imports, and transactions to people inside the household.
+3. **Encrypted raw retention** — raw uploads are stored privately as encrypted envelopes, not plaintext CSVs.
+4. **Secret-provider abstraction** — secret lookups are routed through pluggable providers (`env` now, registry-ready for others).
+5. **Reusable dashboard application service** — dashboard, report, recommendation, and AI-tool reads reuse the same service layer.
+6. **Policy persistence** — target allocations, rebalance thresholds, cash reserve targets, and concentration limits are versioned per household.
+7. **Memory persistence** — household goals, constraints, preferences, and reconciliation notes are stored separately from canonical facts.
+8. **Connector + sync persistence** — connector link state and sync runs are recorded even when refresh is import-driven.
+9. **Snapshot + audit persistence** — dashboard snapshots and append-only audit events capture imports, policy/memory changes, syncs, and AI tool use.
+10. **Deterministic finance tools** — holdings, tax lots, realized gains, allocation drift, cash deployment, sale simulation, and lightweight reports.
 
-CSV requires `account_id,symbol,transaction_date,quantity,price,type`; optional
-`market_price,cost_basis,lot_id,external_id` improve valuation, tax-lot reconstruction,
-and idempotency.
-Supported types are `BUY`, `SELL`, and `TRANSFER_IN`. Import batches retain raw input
-and a content hash; external event IDs prevent duplicated transactions across imports.
+## Implemented API slice
 
-Run locally:
+### Auth and household scope
 
-```bash
-cd backend
-python -m pip install -e ".[dev]"
-uvicorn app.main:app --reload
-pytest
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `GET /api/v1/me`
+- `GET /api/v1/households`
+- `POST /api/v1/households`
+- `GET|POST /api/v1/households/{household_id}/people`
+
+### Ledger, dashboard, and analysis
+
+- `POST /api/v1/households/{household_id}/imports/{connector}`
+- `POST /api/v1/households/{household_id}/people/{person_id}/imports/{connector}`
+- `POST /api/v1/households/{household_id}/people/{person_id}/plaid/link-token`
+- `POST /api/v1/households/{household_id}/people/{person_id}/plaid/exchange`
+- `GET /api/v1/households/{household_id}/dashboard`
+- `GET /api/v1/households/{household_id}/accounts`
+- `GET /api/v1/households/{household_id}/transactions`
+- `GET /api/v1/households/{household_id}/holdings`
+- `GET /api/v1/households/{household_id}/tax-lots`
+- `POST /api/v1/households/{household_id}/simulate-sale`
+- `GET /api/v1/households/{household_id}/recommendations`
+- `GET /api/v1/households/{household_id}/reports/quarterly-review`
+- `GET /api/v1/households/{household_id}/reports/ytd-realized-gains`
+
+Dashboard responses stay household-derived, but now also include household people, per-person portfolio rollups, and a selected-person view for person-scoped uploads and review flows.
+
+### Plaid connection (MVP)
+
+Plaid is the primary MVP intake path. Select a person, choose **Connect with Plaid**, complete Plaid Link,
+and LedgerPilot imports the account's current investment positions once. The access token is encrypted before
+being saved, and is never returned through the API or dashboard.
+
+This is intentionally a current-position import: it supplies holdings and market value for portfolio viewing,
+not historical activity or verified tax lots. Automatic refresh, incremental transaction sync, and tax-lot
+reconciliation are deferred; CSV remains available when history is required.
+
+Set these server-side environment variables to enable the button:
+
+```text
+LEDGERPILOT_PLAID_CLIENT_ID=...
+LEDGERPILOT_PLAID_SECRET=...
+LEDGERPILOT_PLAID_ENVIRONMENT=sandbox  # sandbox, development, or production
 ```
 
-This is intentionally an in-memory first vertical slice. Replacing `LedgerStore` with
-a PostgreSQL-backed repository, adding encrypted raw-object storage, and implementing
-the IBKR read-only activity import are the next production steps.
+### Policy, memory, connector, sync, snapshot, audit
 
-### Run the web app with Docker
+- `GET|POST /api/v1/households/{household_id}/policies`
+- `GET|POST /api/v1/households/{household_id}/memory`
+- `GET|POST /api/v1/households/{household_id}/connectors`
+- `GET|POST /api/v1/households/{household_id}/syncs`
+- `GET|POST /api/v1/households/{household_id}/snapshots`
+- `GET /api/v1/households/{household_id}/audit`
 
-From the repository root, run `docker compose -f infra/docker-compose.yml up --build`.
-Then visit <http://localhost:8000>. Choose a household and connector, upload a CSV, and
-the same page displays the derived holdings with freshness metadata. Data is intentionally
-in-memory in this milestone, so it resets when the container restarts.
+### Tenant-authorized AI tool contract
 
-The UI is a single same-origin FastAPI-served page for this feature. A Next.js read-only
-application should replace it once the canonical repository and persisted snapshots are
-in place; it must retain the visible `as_of`, source, freshness, and sync-status indicators.
+AI clients stay on explicit tool rails and never receive direct database access.
+
+- `GET /api/v1/households/{household_id}/ai/tools`
+- `POST /api/v1/households/{household_id}/ai/tools/{tool_name}`
+
+Current tool catalog:
+
+- `get_dashboard`
+- `get_portfolio_summary`
+- `simulate_sale`
+- `generate_report`
+- `list_memory`
+- `get_policy`
+
+## CSV fallback
+
+The upload format is visible in the dashboard and documented here. LedgerPilot accepts a normal
+transaction table with these required values:
+
+| Required value | Accepted headers |
+| --- | --- |
+| Account | `account_id`, `Account Number`, `Account`, `Portfolio` |
+| Symbol | `symbol`, `ticker`, `Security Symbol` |
+| Transaction date | `transaction_date`, `Trade Date`, `Date/Time`, `Activity Date` |
+| Quantity | `quantity`, `qty`, `Shares`, `Units` |
+| Price or amount | `price`, `T. Price`, `Net Amount`, `Proceeds` |
+| Type | `type`, `Action`, `Buy/Sell`, `Transaction Type` |
+
+Optional values are `market_price`, `cost_basis`, `lot_id`, and `external_id` (for example,
+`Current Price`, `Cost Basis`, `Tax Lot ID`, and `Transaction ID`). Types normalize to `BUY`,
+`SELL`, or `TRANSFER_IN`.
+
+It also accepts Interactive Brokers Activity Statement exports whose first row is
+`Statement,Header,Field Name,Field Value`. For these multi-section exports, LedgerPilot reads the
+account from the statement metadata, finds the `Trades` table's embedded header, and infers buy or
+sell from the signed quantity when no action column exists. Comma-, semicolon-, tab-, and
+pipe-delimited files are supported. Prices are derived from amounts when needed. Unsupported
+activities are rejected with the exact row and reason rather than silently creating incorrect tax
+records.
+Supported normalized types are `BUY`, `SELL`, and `TRANSFER_IN`.
 
 ## Product boundaries (MVP)
 
-- ✅ Consolidate data from broker/bank connectors and file imports
+- ✅ Connect an investment institution through Plaid for one-time current-position imports
+- ✅ Import a broker CSV as an optional fallback
 - ✅ Normalize into a canonical ledger with provenance and auditability
-- ✅ Run deterministic portfolio, tax, and migration analysis
-- ✅ Expose results in a read-only UI and via an AI assistant tool API
+- ✅ Run deterministic portfolio, tax, and report analysis
+- ✅ Expose results in a dashboard and via an AI assistant tool API
 - ❌ No buy/sell/transfer execution APIs
+- ❌ No direct AI database access
+- ❌ No automated Plaid refresh or historical tax-lot reconciliation
+- ❌ No LLM chat UI or hosted AI model connection; the MVP provides the safe tool contract only
 
 ## Optimized data path
 
 ```text
-Connectors
-  -> Raw Import + Provenance
+Connectors / CSV
+  -> Encrypted Raw Envelope + Provenance
   -> Normalizer
   -> Canonical Ledger (authoritative)
-  -> Materialized Portfolio Views (cached read models)
+  -> Application Service
+  -> Materialized Household Snapshots
   -> FastAPI
-  -> Read-only UI / AI Agent
+  -> Read-only UI / AI Tool Client
 ```
 
-Each materialized view carries: `as_of`, `source`, `freshness`, `sync_status`.
+Each household read model carries: `as_of`, `source`, `freshness`, `sync_status`.
 
-## Canonical domain skeleton
+## Environment
 
-Core entities:
+Set these before starting the backend:
 
-- Tenant, Household, Person, Account
-- Security, Transaction, TaxLot
-- Position, Snapshot, Recommendation
-- ImportBatch, BrokerConnection
-- Policy, MemoryEntry, AuditEvent
+- `DATABASE_URL`
+- `LEDGERPILOT_AUTH_SECRET`
+- `LEDGERPILOT_FRONTEND_ORIGIN` (optional)
+- `LEDGERPILOT_RAW_UPLOAD_ROOT` (optional)
+- `LEDGERPILOT_SECRET_PROVIDER` (optional, defaults to `env`)
+- `LEDGERPILOT_RAW_ENCRYPTION_SECRET_NAME` (optional, defaults to `LEDGERPILOT_RAW_UPLOAD_ENCRYPTION_KEY`)
+- `LEDGERPILOT_RAW_UPLOAD_ENCRYPTION_KEY` (recommended for encrypted raw storage; backend falls back to the auth secret if omitted)
+- `LEDGERPILOT_PLAID_CLIENT_ID` and `LEDGERPILOT_PLAID_SECRET` (required only to enable Plaid)
+- `LEDGERPILOT_PLAID_ENVIRONMENT` (optional, defaults to `sandbox`)
 
-Rules:
+## Run locally
 
-- Transactions and imported lots are source of truth.
-- Positions/summaries are derived and rebuildable.
-- Memory and policy never override canonical financial facts.
+```bash
+cd backend
+python -m pip install -e .
+uvicorn app.main:app --reload
 
-## Materialized views & refresh skeleton
-
-Read path defaults to local snapshots (`PortfolioSnapshot`, `AccountSnapshot`) with TTL-based caching.
-
-Refresh triggers:
-
-- scheduled sync
-- manual refresh
-- connector webhook (if available)
-- forced refresh before freshness-sensitive analysis
-
-Behavior:
-
-- If stale, APIs return cached data **with explicit stale warning**.
-- Broker outages do not break reads; last known portfolio remains available.
-
-## Deterministic analysis engines
-
-- **Portfolio**: allocation, drift, rebalance simulation, cash deployment
-- **Tax**: realized/unrealized gains, holding period, wash-sale checks, disposal simulation
-- **Migration**: in-kind vs sell, unsupported/fractional holdings, staged IBKR migration
-- **Reports**: quarterly review, YTD realized gains estimate, migration plan
-
-## AI integration contract
-
-AI model (Ollama; Qwen3.5 4B / Phi-4-mini) acts as an API client only.
-
-The assistant can call explicit tools like:
-
-- `get_portfolio_summary`
-- `simulate_sale`
-- `generate_migration_plan`
-- `generate_report`
-
-It has no direct DB access and no execution endpoints.
-
-## Security and audit skeleton
-
-- Secrets accessed through pluggable `SecretProvider`
-  - Windows Credential Manager, 1Password, Vault, env vars, AWS Secrets Manager
-- Secrets never stored in config/portfolio tables.
-- Append-only audit trail for imports, memory/policy changes, recommendations, recalculations, and user-reported actions.
-
-## Suggested repository skeleton
-
-```text
-backend/
-  app/
-    api/
-      routes/
-        households.py
-        accounts.py
-        holdings.py
-        transactions.py
-        tax.py
-        migration.py
-        recommendations.py
-        reports.py
-        memory.py
-        audit.py
-    domain/
-      models/            # canonical ledger models
-      views/             # materialized read models
-      policies/
-      memory/
-    services/
-      connectors/        # Plaid, IBKR, CSV/QFX/OFX
-      normalization/
-      sync/
-      engines/           # portfolio/tax/migration deterministic logic
-      reporting/
-      pricing/           # short-lived market cache
-      provenance/
-      audit/
-      secrets/
-    ai/
-      tools/
-      orchestration/
-    db/
-      migrations/        # Alembic
-      session.py
-    main.py              # FastAPI app
-
-frontend/
-  src/
-    pages/
-      households/
-      accounts/
-      holdings/
-      tax/
-      migration/
-      recommendations/
-      reports/
-      memory/
-      audit/
-
-infra/
-  docker-compose.yml
-  env/
+# in another shell
+cd frontend
+npm install
+npm run dev
 ```
 
-## Killer workflow (MVP)
+Or run the stack with Docker:
 
-1. Connect accounts
-2. Reconstruct portfolio and tax lots
-3. Define portfolio policy
-4. Assess allocation + tax posture
-5. Determine in-kind vs taxable moves
-6. Generate staged IBKR consolidation plan
-7. User executes externally
-8. Next sync reconciles actual state
+```bash
+docker compose -f infra/docker-compose.yml up --build
+```
+
+Then visit <http://localhost:3000>, register a profile, choose a household, select or create a
+person, upload a CSV under that person, and review both household-derived analytics and person-level
+ownership for accounts, imports, and transactions.
+Only port `3000` is published to the host; the dashboard proxies `/api` requests to the private API
+container, and PostgreSQL is available only within the Compose network.
+
+Portfolio migration planning is intentionally deferred from the MVP and will be introduced as a future capability.
