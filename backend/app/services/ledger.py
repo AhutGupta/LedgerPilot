@@ -86,7 +86,7 @@ CAPABILITIES = {
 }
 SUPPORTED_TYPES = {"BUY", "SELL", "TRANSFER_IN"}
 REQUIRED_COLUMNS = {"account_id", "symbol", "transaction_date", "quantity", "type"}
-ALLOWED_CONNECTOR_STATUSES = {"pending", "active", "import_only", "error"}
+ALLOWED_CONNECTOR_STATUSES = {"pending", "active", "import_only", "error", "disconnected"}
 ALLOWED_SYNC_TRIGGERS = {"import", "manual", "scheduled", "ai_tool"}
 ALLOWED_SYNC_STATUSES = {"pending", "succeeded", "skipped", "failed", "stale"}
 ALLOWED_MEMORY_TYPES = {"goal", "constraint", "preference", "reconciliation_note"}
@@ -758,6 +758,140 @@ class LedgerRepository:
                     updated_at = NOW()
                 """,
                 (connector_link_id, item_id, encrypted_token),
+            )
+            connection.commit()
+
+    def get_plaid_access_token(self, *, connector_link_id: str) -> tuple[str, str] | None:
+        from app.services.secrets.crypto import EncryptedPayloadCodec
+
+        with get_connection() as connection:
+            row = connection.execute(
+                """
+                SELECT item_id, encrypted_access_token
+                FROM plaid_items
+                WHERE connector_link_id = %s
+                """,
+                (connector_link_id,),
+            ).fetchone()
+            if not row:
+                return None
+            access_token = EncryptedPayloadCodec().decrypt_text(row["encrypted_access_token"])
+            return row["item_id"], access_token
+
+    def get_plaid_item_by_item_id(self, item_id: str) -> dict[str, Any] | None:
+        with get_connection() as connection:
+            row = connection.execute(
+                """
+                SELECT pi.connector_link_id, pi.item_id, cl.household_id, cl.household_person_id,
+                       cl.created_by_profile_id, cl.status
+                FROM plaid_items pi
+                JOIN connector_links cl ON cl.id = pi.connector_link_id
+                WHERE pi.item_id = %s
+                """,
+                (item_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return dict(row)
+
+    def disconnect_plaid_connector(self, *, profile_id: str, household_id: str, connector_link_id: str) -> tuple[str, str | None]:
+        with get_connection() as connection:
+            self._require_household_access(connection, profile_id, household_id)
+            row = connection.execute(
+                """
+                SELECT cl.id, cl.external_reference, pi.encrypted_access_token
+                FROM connector_links cl
+                LEFT JOIN plaid_items pi ON pi.connector_link_id = cl.id
+                WHERE cl.id = %s AND cl.household_id = %s
+                """,
+                (connector_link_id, household_id),
+            ).fetchone()
+            if not row:
+                raise LookupError("connector link not found")
+            access_token = None
+            if row["encrypted_access_token"]:
+                from app.services.secrets.crypto import EncryptedPayloadCodec
+                try:
+                    access_token = EncryptedPayloadCodec().decrypt_text(row["encrypted_access_token"])
+                except Exception:
+                    pass
+            connection.execute(
+                "DELETE FROM plaid_items WHERE connector_link_id = %s",
+                (connector_link_id,),
+            )
+            connection.execute(
+                """
+                UPDATE connector_links
+                SET status = 'disconnected', updated_at = NOW()
+                WHERE id = %s
+                """,
+                (connector_link_id,),
+            )
+            connection.commit()
+            return row["external_reference"] or "", access_token
+
+    def delete_plaid_connector_data(
+        self, *, profile_id: str, household_id: str, connector_link_id: str
+    ) -> tuple[str | None, dict[str, int]]:
+        with get_connection() as connection:
+            self._require_household_access(connection, profile_id, household_id)
+            row = connection.execute(
+                """
+                SELECT cl.id, cl.household_person_id, pi.encrypted_access_token
+                FROM connector_links cl
+                LEFT JOIN plaid_items pi ON pi.connector_link_id = cl.id
+                WHERE cl.id = %s AND cl.household_id = %s
+                """,
+                (connector_link_id, household_id),
+            ).fetchone()
+            if not row:
+                raise LookupError("connector link not found")
+            access_token = None
+            if row["encrypted_access_token"]:
+                from app.services.secrets.crypto import EncryptedPayloadCodec
+                try:
+                    access_token = EncryptedPayloadCodec().decrypt_text(row["encrypted_access_token"])
+                except Exception:
+                    pass
+            person_id = row["household_person_id"]
+            connection.execute("DELETE FROM plaid_items WHERE connector_link_id = %s", (connector_link_id,))
+            batch_rows = connection.execute(
+                """
+                SELECT id FROM import_batches
+                WHERE household_id = %s AND household_person_id = %s AND connector = 'plaid'
+                """,
+                (household_id, person_id),
+            ).fetchall()
+            batch_ids = [r["id"] for r in batch_rows]
+            tx_count = 0
+            if batch_ids:
+                tx_result = connection.execute(
+                    "DELETE FROM transactions WHERE batch_id = ANY(%s)",
+                    (batch_ids,),
+                )
+                tx_count = tx_result.rowcount or 0
+                connection.execute(
+                    "DELETE FROM import_batches WHERE id = ANY(%s)",
+                    (batch_ids,),
+                )
+            connection.execute(
+                "DELETE FROM sync_runs WHERE connector_link_id = %s",
+                (connector_link_id,),
+            )
+            connection.execute(
+                "DELETE FROM connector_links WHERE id = %s",
+                (connector_link_id,),
+            )
+            connection.commit()
+            return access_token, {"deleted_batches": len(batch_ids), "deleted_transactions": tx_count}
+
+    def update_connector_status(self, connector_link_id: str, status: str) -> None:
+        if status not in ALLOWED_CONNECTOR_STATUSES:
+            raise ValueError(f"unsupported connector status: {status}")
+        with get_connection() as connection:
+            connection.execute(
+                "UPDATE connector_links SET status = %s, updated_at = NOW() WHERE id = %s",
+                (status, connector_link_id),
             )
             connection.commit()
 

@@ -32,21 +32,32 @@ class PlaidClient:
         self.client_id = settings.plaid_client_id
         self.secret = settings.plaid_secret
 
-    def create_link_token(self, *, profile_id: str, person_name: str) -> str:
-        result = self._post(
-            "/link/token/create",
-            {
-                "client_name": "LedgerPilot",
-                "country_codes": ["US"],
-                "language": "en",
-                "products": ["investments"],
-                "user": {"client_user_id": profile_id},
-            },
-        )
+    def create_link_token(self, *, profile_id: str, person_name: str, access_token: str | None = None) -> str:
+        payload: dict[str, object] = {
+            "client_name": "LedgerPilot",
+            "country_codes": ["US"],
+            "language": "en",
+            "user": {"client_user_id": profile_id},
+        }
+        if access_token:
+            payload["access_token"] = access_token
+        else:
+            payload["products"] = ["investments"]
+        result = self._post("/link/token/create", payload)
         token = result.get("link_token")
         if not isinstance(token, str) or not token:
             raise ValueError("Plaid did not return a Link token.")
         return token
+
+    def remove_item(self, access_token: str) -> dict:
+        if not access_token.strip():
+            raise ValueError("Plaid access token is required.")
+        try:
+            return self._post("/item/remove", {"access_token": access_token})
+        except ValueError as exc:
+            if "ITEM_NOT_FOUND" in str(exc) or "INVALID_ACCESS_TOKEN" in str(exc):
+                return {"removed": True, "note": "item was already inactive on Plaid"}
+            raise
 
     def exchange_and_get_holdings(self, public_token: str) -> tuple[str, str, dict]:
         if not public_token.strip():

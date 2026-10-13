@@ -101,6 +101,7 @@ export default function HomePage() {
   const [uploadConnector, setUploadConnector] = useState("ibkr");
   const [uploadFile, setUploadFile] = useState(null);
   const [isPlaidConnecting, setIsPlaidConnecting] = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
 
   const selectedHousehold = useMemo(
     () => households.find((household) => household.id === selectedHouseholdId) || null,
@@ -301,11 +302,16 @@ export default function HomePage() {
     }
   }
 
-  async function handlePlaidConnect() {
+  function handlePlaidConnectClick() {
     if (!selectedHouseholdId || !selectedPersonId) {
       setStatusMessage("Choose a household and person before connecting an investment account.");
       return;
     }
+    setShowConsentModal(true);
+  }
+
+  async function executePlaidConnect() {
+    setShowConsentModal(false);
     try {
       setIsPlaidConnecting(true);
       setStatusMessage("Preparing secure Plaid connection…");
@@ -350,6 +356,65 @@ export default function HomePage() {
     } catch (error) {
       setStatusMessage(error.message);
       setIsPlaidConnecting(false);
+    }
+  }
+
+  async function handlePlaidUpdate(connectorLinkId) {
+    if (!selectedHouseholdId || !selectedPersonId) return;
+    try {
+      setIsPlaidConnecting(true);
+      setStatusMessage("Opening Plaid in update mode to re-authenticate account…");
+      const { link_token: linkToken } = await apiRequest(
+        `/households/${selectedHouseholdId}/people/${selectedPersonId}/plaid/update-link-token`,
+        {
+          token,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ connector_link_id: connectorLinkId }),
+        },
+      );
+      const Plaid = await loadPlaidLink();
+      if (!Plaid) {
+        throw new Error("Plaid Link did not initialize.");
+      }
+      const handler = Plaid.create({
+        token: linkToken,
+        onSuccess: async () => {
+          setStatusMessage("Account successfully re-authenticated with Plaid.");
+          await loadDashboard(token, selectedHouseholdId, selectedPersonId);
+          setIsPlaidConnecting(false);
+        },
+        onExit: () => {
+          setIsPlaidConnecting(false);
+        },
+      });
+      handler.open();
+    } catch (error) {
+      setStatusMessage(error.message);
+      setIsPlaidConnecting(false);
+    }
+  }
+
+  async function handlePlaidDisconnect(connectorLinkId, deleteData = false) {
+    if (!selectedHouseholdId || !selectedPersonId) return;
+    try {
+      setIsLoading(true);
+      setStatusMessage(deleteData ? "Disconnecting Plaid and purging data…" : "Disconnecting Plaid…");
+      const result = await apiRequest(
+        `/households/${selectedHouseholdId}/people/${selectedPersonId}/plaid/disconnect`,
+        {
+          token,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ connector_link_id: connectorLinkId, delete_data: deleteData }),
+        },
+      );
+      setStatusMessage(result.message || "Disconnected Plaid connection.");
+      await loadDashboard(token, selectedHouseholdId, selectedPersonId);
+    } catch (error) {
+      setStatusMessage(error.message);
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -507,16 +572,60 @@ export default function HomePage() {
             <section className="card stack">
               <h2>Connect investment account</h2>
               <p className="empty">
-                Use Plaid to import your current investment positions once. Automatic refresh and tax-lot history are
+                Use Plaid to import your current investment positions. Automatic refresh and tax-lot history are
                 intentionally deferred for this MVP.
               </p>
               <button
                 type="button"
-                onClick={handlePlaidConnect}
+                onClick={handlePlaidConnectClick}
                 disabled={isLoading || isPlaidConnecting || !selectedHouseholdId || !selectedPersonId}
               >
                 {isPlaidConnecting ? "Connecting…" : `Connect with Plaid for ${selectedPerson?.full_name || "person"}`}
               </button>
+
+              {dashboard?.connectors?.filter((c) => c.connector === "plaid").length > 0 ? (
+                <div className="stack" style={{ marginTop: "1rem" }}>
+                  <h3>Connected Plaid Accounts</h3>
+                  {dashboard.connectors
+                    .filter((c) => c.connector === "plaid")
+                    .map((conn) => (
+                      <div key={conn.id} className="connectionItem">
+                        <div>
+                          <strong>{conn.display_name}</strong>
+                          <span className={`statusBadge ${conn.status}`}>{conn.status}</span>
+                        </div>
+                        <div className="btnGroup">
+                          {conn.status !== "active" ? (
+                            <button
+                              type="button"
+                              className="btnWarning"
+                              onClick={() => handlePlaidUpdate(conn.id)}
+                              disabled={isLoading || isPlaidConnecting}
+                            >
+                              Re-authenticate
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="btnSecondary"
+                            onClick={() => handlePlaidDisconnect(conn.id, false)}
+                            disabled={isLoading}
+                          >
+                            Disconnect
+                          </button>
+                          <button
+                            type="button"
+                            className="btnDanger"
+                            onClick={() => handlePlaidDisconnect(conn.id, true)}
+                            disabled={isLoading}
+                          >
+                            Disconnect &amp; Purge Data
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              ) : null}
               <details className="csvHelp">
                 <summary>Or upload a CSV export</summary>
               <form className="stack" onSubmit={handleUpload}>
@@ -801,6 +910,56 @@ export default function HomePage() {
           </section>
         </>
       )}
+
+      {showConsentModal ? (
+        <div className="modalOverlay" role="dialog" aria-modal="true">
+          <div className="modalCard">
+            <h3>Connect Financial Institution</h3>
+            <p className="modalSubtitle">
+              Before proceeding to Plaid, please review the permissions and data privacy policies.
+            </p>
+            <div className="disclosureStack">
+              <div className="disclosureItem">
+                <span className="disclosureIcon">🔒</span>
+                <div>
+                  <strong>Read-Only Access</strong>
+                  <p>LedgerPilot only accesses current balances and investment holdings. It cannot execute trades, move funds, or make changes to your accounts.</p>
+                </div>
+              </div>
+              <div className="disclosureItem">
+                <span className="disclosureIcon">🛡️</span>
+                <div>
+                  <strong>Encrypted &amp; Tenant-Isolated</strong>
+                  <p>Access credentials and account holdings are encrypted at rest with authenticated tenant-isolation scoped to your household.</p>
+                </div>
+              </div>
+              <div className="disclosureItem">
+                <span className="disclosureIcon">🗑️</span>
+                <div>
+                  <strong>Complete Control &amp; Data Deletion</strong>
+                  <p>You can revoke access or permanently purge your imported financial data at any time from this dashboard.</p>
+                </div>
+              </div>
+            </div>
+            <div className="modalActions">
+              <button
+                type="button"
+                className="btnSecondary"
+                onClick={() => setShowConsentModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executePlaidConnect}
+                disabled={isPlaidConnecting}
+              >
+                Agree &amp; Continue to Plaid
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

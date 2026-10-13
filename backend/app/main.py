@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import accounts, ai, audit, auth, households, ledger, memory, recommendations, reports, transactions
+from app.api.routes import accounts, ai, audit, auth, households, ledger, memory, recommendations, reports, transactions, webhooks
 from app.config import get_settings
 from app.db.session import run_migrations
 from app.services.raw_uploads import raw_upload_store
@@ -39,6 +39,7 @@ app.include_router(audit.router, prefix="/api/v1")
 app.include_router(recommendations.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
+app.include_router(webhooks.router, prefix="/api/v1")
 
 
 @app.get("/")

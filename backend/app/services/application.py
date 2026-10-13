@@ -28,6 +28,119 @@ class HouseholdApplicationService:
         link_token = PlaidClient().create_link_token(profile_id=profile_id, person_name=person.full_name)
         return {"link_token": link_token, "person": person}
 
+    def create_plaid_update_link_token(
+        self, profile_id: str, household_id: str, household_person_id: str, connector_link_id: str
+    ) -> dict:
+        person = self._resolve_person_for_write(profile_id, household_id, household_person_id)
+        token_info = repository.get_plaid_access_token(connector_link_id=connector_link_id)
+        if not token_info:
+            raise LookupError("Active Plaid connection token not found.")
+        item_id, access_token = token_info
+        link_token = PlaidClient().create_link_token(
+            profile_id=profile_id, person_name=person.full_name, access_token=access_token
+        )
+        return {"link_token": link_token, "person": person, "item_id": item_id}
+
+    def disconnect_plaid(
+        self,
+        profile_id: str,
+        household_id: str,
+        household_person_id: str,
+        connector_link_id: str,
+        *,
+        delete_data: bool = False,
+    ) -> dict:
+        person = self._resolve_person_for_write(profile_id, household_id, household_person_id)
+        client = None
+        try:
+            client = PlaidClient()
+        except ValueError:
+            pass
+        if delete_data:
+            access_token, stats = repository.delete_plaid_connector_data(
+                profile_id=profile_id, household_id=household_id, connector_link_id=connector_link_id
+            )
+            if client and access_token:
+                try:
+                    client.remove_item(access_token)
+                except Exception:
+                    pass
+            repository.record_audit_event(
+                profile_id=profile_id,
+                household_id=household_id,
+                event_type="plaid.item.deleted",
+                entity_type="connector_link",
+                entity_id=connector_link_id,
+                details={"person_id": person.id, "stats": stats},
+            )
+            snapshot = self.capture_snapshot(profile_id, household_id, snapshot_type="dashboard")
+            return {"status": "deleted", "person": person, "stats": stats, "snapshot_id": snapshot.id}
+        else:
+            external_reference, access_token = repository.disconnect_plaid_connector(
+                profile_id=profile_id, household_id=household_id, connector_link_id=connector_link_id
+            )
+            if client and access_token:
+                try:
+                    client.remove_item(access_token)
+                except Exception:
+                    pass
+            repository.record_audit_event(
+                profile_id=profile_id,
+                household_id=household_id,
+                event_type="plaid.item.disconnected",
+                entity_type="connector_link",
+                entity_id=connector_link_id,
+                details={"person_id": person.id, "item_id": external_reference},
+            )
+            snapshot = self.capture_snapshot(profile_id, household_id, snapshot_type="dashboard")
+            return {
+                "status": "disconnected",
+                "person": person,
+                "item_id": external_reference,
+                "snapshot_id": snapshot.id,
+            }
+
+    def handle_plaid_webhook(
+        self, *, webhook_type: str, webhook_code: str, item_id: str, error: dict[str, Any] | None = None
+    ) -> dict:
+        item = repository.get_plaid_item_by_item_id(item_id)
+        if not item:
+            return {"acknowledged": True, "item_id": item_id, "handled": False, "reason": "item not found"}
+        connector_link_id = item["connector_link_id"]
+        household_id = item["household_id"]
+        profile_id = item["created_by_profile_id"]
+        person_id = item["household_person_id"]
+        if webhook_code in {"ITEM_LOGIN_REQUIRED", "PENDING_EXPIRATION"} or error:
+            repository.update_connector_status(connector_link_id, "error")
+            repository.record_audit_event(
+                profile_id=profile_id,
+                household_id=household_id,
+                event_type=f"plaid.webhook.{webhook_code.lower()}",
+                entity_type="connector_link",
+                entity_id=connector_link_id,
+                details={"webhook_type": webhook_type, "webhook_code": webhook_code, "error": error or {}},
+            )
+            repository.record_sync_run(
+                profile_id=profile_id,
+                household_id=household_id,
+                household_person_id=person_id,
+                connector_link_id=connector_link_id,
+                trigger="scheduled",
+                status="failed",
+                summary=f"Plaid webhook {webhook_code}: action required by user to re-authenticate account.",
+                stats={"webhook_type": webhook_type, "webhook_code": webhook_code},
+            )
+        else:
+            repository.record_audit_event(
+                profile_id=profile_id,
+                household_id=household_id,
+                event_type="plaid.webhook.received",
+                entity_type="connector_link",
+                entity_id=connector_link_id,
+                details={"webhook_type": webhook_type, "webhook_code": webhook_code},
+            )
+        return {"acknowledged": True, "item_id": item_id, "handled": True}
+
     def import_plaid_holdings(
         self,
         profile_id: str,

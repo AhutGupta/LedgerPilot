@@ -51,6 +51,15 @@ class PlaidExchangeRequest(BaseModel):
     public_token: str = Field(min_length=1, max_length=2048)
 
 
+class PlaidUpdateLinkTokenRequest(BaseModel):
+    connector_link_id: str
+
+
+class PlaidDisconnectRequest(BaseModel):
+    connector_link_id: str
+    delete_data: bool = False
+
+
 class SaleSimulationRequest(BaseModel):
     symbol: str
     quantity: Any
@@ -121,6 +130,40 @@ def exchange_plaid_public_token(
             "row_count": result["batch"].row_count,
             "snapshot_id": result["snapshot"].id,
         }
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.post("/households/{household_id}/people/{person_id}/plaid/update-link-token")
+def create_plaid_update_link_token(
+    household_id: str,
+    person_id: str,
+    payload: PlaidUpdateLinkTokenRequest,
+    profile: Annotated[Profile, Depends(require_profile)],
+) -> dict:
+    try:
+        return household_app_service.create_plaid_update_link_token(
+            profile.id, household_id, person_id, payload.connector_link_id
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.post("/households/{household_id}/people/{person_id}/plaid/disconnect")
+def disconnect_plaid(
+    household_id: str,
+    person_id: str,
+    payload: PlaidDisconnectRequest,
+    profile: Annotated[Profile, Depends(require_profile)],
+) -> dict:
+    try:
+        return household_app_service.disconnect_plaid(
+            profile.id, household_id, person_id, payload.connector_link_id, delete_data=payload.delete_data
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
